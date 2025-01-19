@@ -1,5 +1,5 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Godot Version](https://img.shields.io/badge/Python-Python 3.10.6-orange.svg)
+![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
 ![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)
 
 # ShotBoard v0.1.0
