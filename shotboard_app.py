@@ -278,7 +278,7 @@ class ShotBoard(QMainWindow):
         button_layout.addWidget(self._stop_button)
 
         # Create a split button
-        self._split_button = QPushButton('Insert new shot at this frame position')
+        self._split_button = QPushButton('Insert new shot starting at this frame')
         self._split_button.clicked.connect(self.on_split_button_clicked)
         self._split_button.setStyleSheet(f"background-color: {SHOT_WIDGET_PROGRESSBAR_COLOR};")
         self._split_button.setStatusTip("Add a new shot to the list starting at current position (in case it has not been detected as the beginning of a shot).")
@@ -856,7 +856,7 @@ class ShotBoard(QMainWindow):
                 #if hist_diff > HISTOGRAM_THRESHOLD and ssim_value < SSIM_THRESHOLD and non_zero_count > PIXEL_DIFF_THRESHOLD:
                 if hist_diff > HISTOGRAM_THRESHOLD and non_zero_count > PIXEL_DIFF_THRESHOLD:
                     # Significant change detected, consider it a shot boundary
-                    start_frame = int(frame_count)
+                    start_frame = frame_count
                     self._db.add_frame(start_frame)
                     self._media_player.setPosition(int(self.convert_frame_to_position(start_frame)))
                     self._media_player.pause()
