@@ -52,7 +52,7 @@ PRINT_CYAN_COLOR = '\033[96m'  # cyan
 
 
 # Decorator
-LOG_FUNCTION_NAMES = True
+LOG_FUNCTION_NAMES = False
 
 def log_function_name(has_params=True, color=PRINT_DEFAULT_COLOR):
     def decorator(func):
@@ -432,7 +432,7 @@ class ShotBoard(QMainWindow):
         self.update_grid_layout()
 
 
-    @log_function_name()
+    #@log_function_name()
     def eventFilter(self, obj, event):
         if event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Space:

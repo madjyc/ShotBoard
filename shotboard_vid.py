@@ -26,7 +26,7 @@ class VideoPlayer(QThread):
             ffmpeg
             .input(self._video_path, ss=self._start_frame / self._fps)
             .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame - self._start_frame)
-            .run_async(pipe_stdout=True)
+            .run_async(pipe_stdout=True)#, stderr=subprocess.DEVNULL)
         )
 
         frame_height, frame_width = self._get_frame_size()
