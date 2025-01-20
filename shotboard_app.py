@@ -214,7 +214,7 @@ class ShotBoard(QMainWindow):
         edit_menu.addSeparator()
 
         # Create 'Scan shots' action
-        action = QAction('Scan shots', self)
+        action = QAction('Scan Shots', self)
         action.triggered.connect(self.on_menu_scan_shots)
         edit_menu.addAction(action)
 
