@@ -27,7 +27,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 import sys
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 
 DEFAULT_TITLE = "ShotBoard"
 SPLITTER_HANDLE_WIDTH = 3
@@ -74,6 +74,7 @@ class ShotBoard(QMainWindow):
             self.clicked.emit()
             # Call the base class implementation to ensure normal behavior
             super().mousePressEvent(event)
+
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def __init__(self, geom=QRect(100, 100, 800, 600)):
@@ -128,6 +129,9 @@ class ShotBoard(QMainWindow):
 
         # Set the central widget
         self.setCentralWidget(central_widget)
+
+        self.installEventFilter(self)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         self.statusBar().showMessage("Load a video.")
         self.update_buttons_state()
@@ -344,39 +348,8 @@ class ShotBoard(QMainWindow):
         return bottom_widget
 
 
-    # Override keyPressEvent to listen for the space key
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space:
-            self._play_button.click()
-        elif event.key() == Qt.Key_Right:
-            self._seek_slider.setValue(self._slider.value() + 1)  # Increase value by 1
-        elif event.key() == Qt.Key_Left:
-            self._seek_slider.setValue(self._slider.value() - 1)  # Decrease value by 1
-        elif event.key() == Qt.Key_Up:
-            self._seek_slider.setValue(self._slider.value() + 1)  # Increase value by 25
-        elif event.key() == Qt.Key_Down:
-            self._seek_slider.setValue(self._slider.value() - 1)  # Decrease value by 25
-        else:
-            super().keyPressEvent(event)  # Pass unhandled keys to the parent implementation
-
-
     ##
-    ## UPDATES
-    ##
-
-    # Ne cause pas de réactions en chaîne.
-    @log_function_name()
-    def update_window_title(self):
-        title = DEFAULT_TITLE
-        if self._video_path:
-            title += f" - {self._video_path}"
-        else:
-            title += " - (undefined)"
-        self.setWindowTitle(title)
-
-
-    ##
-    ## SIGNALS
+    ## SLOTS
     ##
 
 
@@ -449,6 +422,35 @@ class ShotBoard(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_grid_layout()
+
+
+    @log_function_name()
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Space:
+                self._play_button.click()
+                return True
+
+            modifiers = event.modifiers()
+            if modifiers & Qt.ShiftModifier:
+                frame_inc = int(self._fps)
+            elif modifiers & Qt.ControlModifier:
+                frame_inc = int(10 * self._fps)
+            elif modifiers & Qt.AltModifier:
+                frame_inc = int(60 * self._fps)
+            else:
+                frame_inc = 1
+
+            frame = round(self.get_mediaplayer_position_as_frame())
+            if event.key() == Qt.Key_Right:
+                self.set_current_frame(frame + frame_inc)
+                return True
+            elif event.key() == Qt.Key_Left:
+                self.set_current_frame(frame - frame_inc)
+                return True
+
+        # Unprocessed events propagate as usual
+        return super().eventFilter(obj, event)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -537,7 +539,7 @@ class ShotBoard(QMainWindow):
         print(f"{PRINT_RED_COLOR}{self._media_player.errorString()}{PRINT_DEFAULT_COLOR}")
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
         # Fetch the shot widget emitting the signal
         shot_widget = self.sender()
@@ -557,14 +559,24 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(has_params=False, color=PRINT_YELLOW_COLOR)
     def on_timer_timeout(self):
-        position = self._media_player.position()
-        frame = int(self.convert_position_to_frame(position))
+        frame = int(self.get_mediaplayer_position_as_frame())
         self.update_slider_and_spinbox(frame)
 
 
     ##
     ## UPDATES
     ##
+
+
+    # Ne cause pas de réactions en chaîne.
+    @log_function_name()
+    def update_window_title(self):
+        title = DEFAULT_TITLE
+        if self._video_path:
+            title += f" - {self._video_path}"
+        else:
+            title += " - (undefined)"
+        self.setWindowTitle(title)
     
     
     def update_buttons_state(self):
@@ -678,7 +690,6 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_YELLOW_COLOR)
     def set_current_frame(self, frame):
         self.update_slider_and_spinbox(frame)
-
         position = int(self.convert_frame_to_position(frame))
         self._media_player.setPosition(position)
 
@@ -948,7 +959,13 @@ class ShotBoard(QMainWindow):
     ##
 
 
-    # @log_function_name(color=PRINT_GRAY_COLOR)
+    #@log_function_name(color=PRINT_GRAY_COLOR)
+    def get_mediaplayer_position_as_frame(self):
+        position = self._media_player.position()
+        return self.convert_position_to_frame(position)
+
+
+    #@log_function_name(color=PRINT_GRAY_COLOR)
     def get_selection_index_min_max(self):
         if self._selection_index_first <= self._selection_index_last:
             return self._selection_index_first, self._selection_index_last
@@ -956,20 +973,20 @@ class ShotBoard(QMainWindow):
             return self._selection_index_last, self._selection_index_first
 
 
-    # @log_function_name(color=PRINT_GRAY_COLOR)
+    #@log_function_name(color=PRINT_GRAY_COLOR)
     def convert_frame_to_position(self, frame):
         assert self._fps > 0
         if self._fps <= 0:
             return 0
-        return frame * 1000 / self._fps
+        return frame * (1000 / self._fps)
 
 
-    # @log_function_name(color=PRINT_GRAY_COLOR)
+    #@log_function_name(color=PRINT_GRAY_COLOR)
     def convert_position_to_frame(self, position):
         assert self._fps > 0
         if self._fps <= 0:
             return 0
-        return position * self._fps * 0.001
+        return position * (self._fps * 0.001)
 
 
     ##
