@@ -27,7 +27,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 import sys
 
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 
 DEFAULT_TITLE = "ShotBoard"
 SPLITTER_HANDLE_WIDTH = 3
@@ -204,12 +204,14 @@ class ShotBoard(QMainWindow):
         action.setShortcuts([QKeySequence.Undo])  # QKeySequence("Ctrl+Z")
         action.triggered.connect(self._history.undo)
         edit_menu.addAction(action)
-        
+        action.setDisabled(True)
+
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Redo", self)
         action.setShortcuts([QKeySequence.Redo])  # QKeySequence("Ctrl+Y"), QKeySequence("Shift+Ctrl+Z")
         action.triggered.connect(self._history.redo)
         edit_menu.addAction(action)
+        action.setDisabled(True)
 
         edit_menu.addSeparator()
 
@@ -355,8 +357,14 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
     def on_menu_new(self):
+        self.stop_video()
+        self.clear_shot_widgets()
         self._db.clear()
         self._db_filename = None
+        self._video_path = None
+        self._fps = 0
+        self.update_buttons_state()
+        self.statusBar().showMessage("Load a video.")
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -598,6 +606,16 @@ class ShotBoard(QMainWindow):
         self._seek_spinbox.blockSignals(False)
 
 
+    def clear_shot_widgets(self):
+        self.clear_shot_widget_selection()
+        for widget in self._shot_widgets:
+            self._grid_layout.removeWidget(widget)
+            widget.hide()
+            widget.deleteLater()
+        self._shot_widgets = []
+        self._selected_shot_widget = None
+
+
     def create_and_display_shot_widgets(self):
         self._shot_widgets = []
         self._selected_shot_widget = None
@@ -701,8 +719,9 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
     def stop_update_timer(self):
-        self._update_timer.stop()
-        self.on_timer_timeout()
+        if self._update_timer.isActive():
+            self._update_timer.stop()
+            self.on_timer_timeout()
 
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
