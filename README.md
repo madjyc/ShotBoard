@@ -79,7 +79,7 @@ If you encounter issues with permissions, try adding `--user` to the command: `p
 
 You're now ready to run **ShotBoard**! 🎉
 
-## User Guide: How to Use the ShotBoard Interface
+## User Guide: How to Use ShotBoard
 
 ### Opening a Video File
 To begin working with a video:
