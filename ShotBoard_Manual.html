@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShotBoard User Guide</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        h2 {
+            font-size: 2em;
+            margin-top: 20px;
+        }
+        h3 {
+            font-size: 1.5em;
+            margin-top: 15px;
+        }
+        p, ul {
+            margin-bottom: 20px;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        code {
+            background-color: #e8e8e8;
+            padding: 2px 5px;
+            font-family: monospace;
+        }
+        .badge {
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .badge img {
+            vertical-align: middle;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 10px;
+            border-top: 1px solid #ccc;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="badge">
+        <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+        <img src="https://img.shields.io/badge/Python-3.10.6-orange.svg" alt="Python Version">
+        <img src="https://img.shields.io/badge/version-v0.1.2-blue.svg" alt="Version">
+    </div>
+
+    <h1>ShotBoard v0.1.2</h1>
+    <p>For <strong>Windows</strong> 10+ and <strong>Linux</strong> (not sure about <strong>Mac</strong>, feel free to try).</p>
+
+    <h2>ShotBoard: Visualize Movies Shot by Shot</h2>
+    <p><strong>ShotBoard</strong> is a Python application designed for <strong>filmmakers</strong>, <strong>editors</strong>, <strong>storyboarders</strong>, and <strong>enthusiasts</strong> who want to explore the structural breakdown of a movie.</p>
+    <ul>
+        <li>Open a movie file (MP4) and detect its individual shots automatically.</li>
+        <li>Display those shots as thumbnails in a grid-style storyboard for quick navigation.</li>
+        <li>Hover over thumbnails to preview the corresponding shots instantly.</li>
+    </ul>
+    <p><strong>ShotBoard</strong> offers a seamless way to analyze shot composition, pacing, and transitions in any MP4 video file.</p>
+
+    <img src="./Example/Screencopy.png" alt="Screenshot" style="max-width: 100%; margin: 20px 0;">
+
+    <h2>Installation</h2>
+
+    <h3>Install ffmpeg</h3>
+    <p>ffmpeg is required for video processing. Follow these steps:</p>
+    <ol>
+        <li>Download ffmpeg from the <a href="https://ffmpeg.org/download.html">official website</a>.</li>
+        <li>Extract the downloaded ZIP file to a folder (e.g., <code>C:\ffmpeg</code>).</li>
+        <li>Add the <code>bin</code> folder to your PATH environment variable.</li>
+        <li>Verify installation by running <code>ffmpeg --version</code> in the command prompt.</li>
+    </ol>
+
+    <h3>Install Python 3.10.6</h3>
+    <ol>
+        <li>Download Python from the <a href="https://www.python.org/downloads/">official website</a>.</li>
+        <li>Install Python and ensure the <code>Add Python to PATH</code> option is selected.</li>
+        <li>Verify installation by running <code>python --version</code>.</li>
+    </ol>
+
+    <h3>Install Necessary Dependencies</h3>
+    <ol>
+        <li>Run <code>pip install PyQt5 opencv-python ffmpeg-python numpy</code> in the terminal.</li>
+        <li>Verify installation by running <code>pip show</code> for each package.</li>
+    </ol>
+
+    <h2>User Guide: How to Use ShotBoard</h2>
+
+    <h3>Opening a Video File</h3>
+    <p>Click <strong>File &gt; Open Video</strong> to open a video file.</p>
+
+    <h3>Navigating Through the Video</h3>
+    <ul>
+        <li><strong>Left/Right Arrow:</strong> Move backward/forward by 1 frame.</li>
+        <li><strong>Shift + Arrow:</strong> Move by 1 second.</li>
+        <li><strong>Ctrl + Arrow:</strong> Move by 10 seconds.</li>
+        <li><strong>Alt + Arrow:</strong> Move by 60 seconds.</li>
+    </ul>
+
+    <h3>Scanning and Detecting Shots</h3>
+    <p>Click <strong>Edit &gt; Scan Shots</strong> to detect shots automatically.</p>
+
+    <h3>Saving and Opening Shot Lists</h3>
+    <ul>
+        <li><strong>Save:</strong> Click <strong>File &gt; Save</strong>.</li>
+        <li><strong>Open:</strong> Click <strong>File &gt; Open Shot List</strong>.</li>
+    </ul>
+
+    <h3>Visualizing Shots</h3>
+    <p>Hover over thumbnails to preview shots; thumbnails animate as long as you hover.</p>
+
+    <h3>Correcting Shot Detection Errors</h3>
+    <ul>
+        <li><strong>Add a New Shot:</strong> Use the slider to position and click <strong>Insert new shot starting at this frame</strong>.</li>
+        <li><strong>Merge Shots:</strong> Select shots and click <strong>Merge selected shots</strong>.</li>
+    </ul>
+
+    <div class="footer">
+        <p><strong>ShotBoard</strong> provides an intuitive and efficient way to explore cinema. Happy storyboarding and analyzing! 🎥✨</p>
+    </div>
+
+</body>
+</html>
