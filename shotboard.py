@@ -840,11 +840,7 @@ class ShotBoard(QMainWindow):
             # Calculate SSIM if previous frame exists
             if prev_frame is not None:
                 ssim_value, _ = ssim(prev_frame, frame, full=True)
-                # DEBUG
-                if ssim_value < 0.6:
-                    print(f"At frame {frame_index}: ssim_value = {ssim_value}")
                 if ssim_value < SSIM_THRESHOLD:
-                    print(f"<<<<<< Shot detected: {frame_index} >>>>> ssim_value = {ssim_value}")
                     self._db.add_shot(frame_index)
                     self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(frame_index)))
 
