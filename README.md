@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.1.2-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)
 
-# ShotBoard v0.1.2
+# ShotBoard v0.2.0
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -89,9 +89,9 @@ To begin working with a video:
 ### Navigating Through the Video
 Use the slider/spinbox or the arrow keys on your keyboard to navigate the video frame-by-frame or jump by larger intervals:
 - **Left/Right Arrow**: Move backward or forward by 1 frame.
-- **Shift + Left/Right Arrow**: Move backward or forward by 1 second.
-- **Ctrl + Left/Right Arrow**: Move backward or forward by 10 seconds.
-- **Alt + Left/Right Arrow**: Move backward or forward by 60 seconds.
+- **Shift + Left/Right Arrow**: Move backward or forward by 5 frames.
+- **Ctrl + Left/Right Arrow**: Move backward or forward by 1 second.
+- **Alt + Left/Right Arrow**: Move backward or forward by 10 seconds.
 
 ### Scanning and Detecting Shots
 To detect all shots in the video:

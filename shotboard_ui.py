@@ -32,13 +32,13 @@ SHOT_WIDGET_HEIGHT = SHOT_WIDGET_IMAGE_HEIGHT + SHOT_WIDGET_PROGRESSBAR_HEIGHT +
 class ShotWidget(QFrame):
     clicked = pyqtSignal(bool)  # Signal includes a boolean to indicate Shift key status
 
-    def __init__(self, video_path, fps, start_frame, end_frame):
+    def __init__(self, video_path, fps, start_frame_index, end_frame_index):
         super().__init__()
         self._videoplayer = None
         self._video_path = video_path
         self._fps = fps
-        self._start_frame = start_frame
-        self._end_frame = end_frame
+        self._start_frame_index = start_frame_index  # included
+        self._end_frame_index = end_frame_index  # excluded (i.e. next frame's start_frame_index)
         self._is_selected = False
 
         self.setFixedSize(SHOT_WIDGET_WIDTH, SHOT_WIDGET_HEIGHT)  #  256 x 148 px
@@ -54,7 +54,7 @@ class ShotWidget(QFrame):
         self._image_label.installEventFilter(self)
         layout.addWidget(self._image_label)
 
-        # Create a QProgressBar to display the frame number
+        # Create a QProgressBar to display the frame index
         self._frame_progress_bar = QProgressBar()
         self._frame_progress_bar.setMaximumHeight(SHOT_WIDGET_PROGRESSBAR_HEIGHT)
         self._frame_progress_bar.setAlignment(Qt.AlignCenter)
@@ -71,11 +71,11 @@ class ShotWidget(QFrame):
         """)
 
         # Set range and value
-        self._frame_progress_bar.setMinimum(start_frame)
-        self._frame_progress_bar.setMaximum(end_frame - 1)
-        self._frame_progress_bar.setValue(start_frame)
+        self._frame_progress_bar.setMinimum(start_frame_index)
+        self._frame_progress_bar.setMaximum(end_frame_index - 1)
+        self._frame_progress_bar.setValue(start_frame_index)
 
-        # Set text format to display the frame number
+        # Set text format to display the frame index
         self._frame_progress_bar.setFormat("Frame %v")
 
         layout.addWidget(self._frame_progress_bar)
@@ -89,18 +89,18 @@ class ShotWidget(QFrame):
         return self.layout().contentsMargins()
 
 
-    def get_start_frame(self):
-        return self._start_frame
+    def get_start_frame_index(self):
+        return self._start_frame_index
     
 
-    def get_end_frame(self):
-        return self._end_frame
+    def get_end_frame_index(self):
+        return self._end_frame_index
 
 
-    def set_end_frame(self, end_frame):
-        assert end_frame > self._start_frame
-        self._end_frame = end_frame
-        self._frame_progress_bar.setMaximum(end_frame - 1)
+    def set_end_frame_index(self, end_frame_index):
+        assert end_frame_index > self._start_frame_index
+        self._end_frame_index = end_frame_index
+        self._frame_progress_bar.setMaximum(end_frame_index - 1)
 
 
     def set_selected(self, selected):
@@ -132,9 +132,11 @@ class ShotWidget(QFrame):
             return
 
         # Use ffmpeg to extract the frame
+        assert self._fps > 0
+        start_pos = self._start_frame_index / self._fps  # no offset for ffmpeg
         command = (
             ffmpeg
-            .input(self._video_path, ss=self._start_frame / self._fps)
+            .input(self._video_path, ss=start_pos)
             .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
             .compile()
         )
@@ -153,11 +155,11 @@ class ShotWidget(QFrame):
             return
 
         # Update the image label
-        self.update_frame(qimg, self._start_frame)
+        self.update_frame(qimg, self._start_frame_index)
 
 
     def on_image_label_enter(self):
-        self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame, self._end_frame)
+        self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame_index, self._end_frame_index)
         self._videoplayer.frame_signal.connect(self.update_frame)
         self._videoplayer.start() # start the video rendering thread
 
@@ -168,7 +170,7 @@ class ShotWidget(QFrame):
             self._videoplayer = None
 
 
-    def update_frame(self, qimage, frame):
+    def update_frame(self, qimage, frame_index):
         pixmap = QPixmap.fromImage(qimage)
         scaled_pixmap = pixmap.scaled(
             self._image_label.maximumWidth(),
@@ -177,7 +179,7 @@ class ShotWidget(QFrame):
             Qt.SmoothTransformation
         )
         self._image_label.setPixmap(scaled_pixmap)
-        self._frame_progress_bar.setValue(frame)
+        self._frame_progress_bar.setValue(frame_index)
 
 
     def closeEvent(self, event):

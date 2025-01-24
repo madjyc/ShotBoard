@@ -8,12 +8,12 @@ from PyQt5.QtGui import QImage
 class VideoPlayer(QThread):
     frame_signal = pyqtSignal(QImage, int)  # Signal to send frames to the UI
 
-    def __init__(self, video_path, fps, start_frame, end_frame, parent=None):
+    def __init__(self, video_path, fps, start_frame_index, end_frame_index, parent=None):
         super().__init__(parent)
         self._video_path = video_path
         self._fps = fps
-        self._start_frame = start_frame
-        self._end_frame = end_frame
+        self._start_frame_index = start_frame_index
+        self._end_frame_index = end_frame_index
         self._running = True
 
 
@@ -22,19 +22,21 @@ class VideoPlayer(QThread):
             print(f"Error: File {self._video_path} does not exist.")
             return
 
+        assert self._fps > 0
+        start_pos = (self._start_frame_index + 0.5) / self._fps
         self.process = (
             ffmpeg
-            .input(self._video_path, ss=self._start_frame / self._fps)
-            .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame - self._start_frame)
+            .input(self._video_path, ss=start_pos)
+            .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
             .run_async(pipe_stdout=True)#, stderr=subprocess.DEVNULL)
         )
 
         frame_height, frame_width = self._get_frame_size()
         frame_size = (frame_height, frame_width, 3)
         sleep_time = int(1000 / self._fps)
-        current_frame = self._start_frame
 
-        while self._running and current_frame < self._end_frame:
+        frame_index = self._start_frame_index
+        while self._running and frame_index < self._end_frame_index:
             in_bytes = self.process.stdout.read(np.prod(frame_size))
             if not in_bytes:
                 print("Error: Cannot read frame.")
@@ -46,12 +48,12 @@ class VideoPlayer(QThread):
                 bytes_per_line = ch * w
                 qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
 
-                self.frame_signal.emit(qimg, current_frame)
+                self.frame_signal.emit(qimg, frame_index)
             else:
                 print(f"Error: Frame size mismatch. Expected {np.prod(frame_size)} bytes, got {len(in_bytes)} bytes.")
                 break
 
-            current_frame += 1
+            frame_index += 1
             if self._running:
                 self.msleep(sleep_time)
 
