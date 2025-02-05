@@ -3,7 +3,7 @@ from shotboard_vid import *
 import ffmpeg
 import subprocess
 import os
-from PyQt5.QtCore import Qt, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QTimer
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
 
@@ -16,8 +16,12 @@ SHOT_WIDGET_MARGIN = 4  # margin between the scrollarea frame and the widgets
 SHOT_WIDGET_PROGRESSBAR_COLOR = "#3a9ad9" #"#0284eb"  # blue
 SHOT_WIDGET_PROGRESSBAR_HEIGHT = 15
 
+SHOT_WIDGET_RESCAN_COLOR = "#3ad98a"  # green
+
 SHOT_WIDGET_WIDTH = SHOT_WIDGET_IMAGE_WIDTH + 2 * SHOT_WIDGET_MARGIN + 2
 SHOT_WIDGET_HEIGHT = SHOT_WIDGET_IMAGE_HEIGHT + SHOT_WIDGET_PROGRESSBAR_HEIGHT + 2 * SHOT_WIDGET_MARGIN + 2
+
+SHOT_WIDGET_HIDE_CURSOR_TIMEOUT = 250  # in ms
 
 # frame_thickness = self._scroll_area.frameWidth()
 # scrollarea_height = self._scroll_area.viewport().height()
@@ -31,6 +35,10 @@ SHOT_WIDGET_HEIGHT = SHOT_WIDGET_IMAGE_HEIGHT + SHOT_WIDGET_PROGRESSBAR_HEIGHT +
 
 class ShotWidget(QFrame):
     clicked = pyqtSignal(bool)  # Signal includes a boolean to indicate Shift key status
+    active_videoplayer = None  # Static variable: tracks the currently playing VideoPlayer instance
+    volume = 0
+    detect_edges = False
+    edge_factor = 1.0
 
     def __init__(self, video_path, fps, start_frame_index, end_frame_index):
         super().__init__()
@@ -52,7 +60,14 @@ class ShotWidget(QFrame):
         self._image_label.setAlignment(Qt.AlignCenter)
         self._image_label.setStyleSheet("background-color: black;")
         self._image_label.installEventFilter(self)
+        self._image_label.setMouseTracking(True)
         layout.addWidget(self._image_label)
+
+        self.setMouseTracking(True)  # Enable tracking for the whole widget
+
+        self._cursor_timer = QTimer(self)
+        self._cursor_timer.setInterval(SHOT_WIDGET_HIDE_CURSOR_TIMEOUT)
+        self._cursor_timer.timeout.connect(self.on_cursor_timer_timeout)
 
         # Create a QProgressBar to display the frame index
         self._frame_progress_bar = QProgressBar()
@@ -97,10 +112,13 @@ class ShotWidget(QFrame):
         return self._end_frame_index
 
 
-    def set_end_frame_index(self, end_frame_index):
+    def set_end_frame_index(self, end_frame_index, reset_thumbnail=True):
         assert end_frame_index > self._start_frame_index
         self._end_frame_index = end_frame_index
         self._frame_progress_bar.setMaximum(end_frame_index - 1)
+        self._frame_progress_bar.setValue(self._start_frame_index)
+        if reset_thumbnail:
+            self.initialise_thumbnail()
 
 
     def set_selected(self, selected):
@@ -124,7 +142,20 @@ class ShotWidget(QFrame):
             elif event.type() == QEvent.Leave:
                 self.on_image_label_leave()
         return super().eventFilter(source, event)
-    
+ 
+
+    def mouseMoveEvent(self, event):
+        """Show the cursor and restart the timer when the mouse moves."""
+        self.setCursor(Qt.ArrowCursor)  # Ensure cursor is visible
+        self._cursor_timer.start()  # Restart the countdown
+        super().mouseMoveEvent(event)
+
+
+    def on_cursor_timer_timeout(self):
+        """Hide the cursor only if still inside the widget."""
+        if self.underMouse():  # Check if the mouse is still inside
+            self.setCursor(Qt.BlankCursor)
+
 
     def initialise_thumbnail(self):
         if not os.path.isfile(self._video_path):
@@ -134,13 +165,27 @@ class ShotWidget(QFrame):
         # Use ffmpeg to extract the frame
         assert self._fps > 0
         start_pos = self._start_frame_index / self._fps  # no offset for ffmpeg
-        command = (
-            ffmpeg
-            .input(self._video_path, ss=start_pos)
-            .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
-            .compile()
-        )
-
+        if ShotWidget.detect_edges:
+            command = (
+                ffmpeg
+                .input(self._video_path, ss=start_pos)
+                .filter('format', 'gray')  # Convert to grayscale
+                #.filter('prewitt', scale=1.5)
+                .filter('sobel', scale=ShotWidget.edge_factor)  # Edge detection
+                #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
+                .filter('negate')  # Invert colors
+                #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
+                .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
+                .compile()
+            )
+        else:
+            command = (
+                ffmpeg
+                .input(self._video_path, ss=start_pos)
+                .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
+                .compile()
+            )
+ 
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = process.communicate()
         if process.returncode != 0:
@@ -159,15 +204,26 @@ class ShotWidget(QFrame):
 
 
     def on_image_label_enter(self):
-        self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame_index, self._end_frame_index)
-        self._videoplayer.frame_signal.connect(self.update_frame)
-        self._videoplayer.start() # start the video rendering thread
+        self._cursor_timer.start()  # Start tracking inactivity
+        if ShotWidget.active_videoplayer:
+            ShotWidget.active_videoplayer.stop()  # Stop any existing player
+            ShotWidget.active_videoplayer = None
+
+        self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.detect_edges, ShotWidget.edge_factor)
+        ShotWidget.active_videoplayer = self._videoplayer
+        if self._videoplayer:
+            self._videoplayer.frame_signal.connect(self.update_frame)
+            self._videoplayer.start()  # Start the video rendering thread
 
 
     def on_image_label_leave(self):
+        self._cursor_timer.stop()  # Stop hiding cursor
+        self.setCursor(Qt.ArrowCursor)  # Ensure the cursor is visible
         if self._videoplayer:
             self._videoplayer.stop()
             self._videoplayer = None
+            if ShotWidget.active_videoplayer == self._videoplayer:
+                ShotWidget.active_videoplayer = None
 
 
     def update_frame(self, qimage, frame_index):
@@ -185,6 +241,12 @@ class ShotWidget(QFrame):
     def closeEvent(self, event):
         self.on_image_label_leave()
         event.accept()
+
+
+    def __del__(self):
+        """ Ensure the VideoPlayer is stopped when the object is deleted """
+        if self._videoplayer:
+            self._videoplayer.stop()
 
 
 if __name__ == "__main__":

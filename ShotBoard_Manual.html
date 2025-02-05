@@ -3,132 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ShotBoard User Guide</title>
+    <title>ShotBoard v0.4.0</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            background-color: #f4f4f4;
-            color: #333;
-            margin: 0;
-            padding: 20px;
-        }
-        h1, h2, h3 {
-            color: #2c3e50;
-        }
-        h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-        h2 {
-            font-size: 2em;
-            margin-top: 20px;
-        }
-        h3 {
-            font-size: 1.5em;
-            margin-top: 15px;
-        }
-        p, ul {
-            margin-bottom: 20px;
-        }
-        ul {
-            padding-left: 20px;
-        }
-        li {
-            margin-bottom: 10px;
-        }
-        code {
-            background-color: #e8e8e8;
-            padding: 2px 5px;
-            font-family: monospace;
-        }
-        .badge {
-            display: inline-block;
-            margin-right: 10px;
-        }
-        .badge img {
-            vertical-align: middle;
-        }
-        .footer {
-            margin-top: 30px;
-            padding-top: 10px;
-            border-top: 1px solid #ccc;
-            text-align: center;
-        }
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
+        h1, h2, h3 { color: #333; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        code { font-family: monospace; }
+        img { max-width: 100%; height: auto; }
+        .kbd { background: #ddd; padding: 3px 5px; border-radius: 3px; font-size: 0.9em; }
     </style>
 </head>
 <body>
-    <h1>ShotBoard v0.2.0</h1>
-    <p>For <strong>Windows</strong> 10+ and <strong>Linux</strong> (not sure about <strong>Mac</strong>, feel free to try).</p>
-
-    <h2>ShotBoard: Visualize Movies Shot by Shot</h2>
-    <p><strong>ShotBoard</strong> is a Python application designed for <strong>filmmakers</strong>, <strong>editors</strong>, <strong>storyboarders</strong>, and <strong>enthusiasts</strong> who want to explore the structural breakdown of a movie.</p>
+    <h1>ShotBoard v0.4.0</h1>
+    <p><strong>For Windows 10+ and Linux (not sure about Mac, feel free to try).</strong></p>
+    
+    <h2>ShotBoard: Visualize movies shot by shot</h2>
+    <p><strong>ShotBoard</strong> is a Python application designed for <strong>filmmakers</strong>, <strong>editors</strong>, <strong>storyboarders</strong> and <strong>enthusiasts</strong> alike, who want to explore the structural breakdown of a movie.</p>
     <ul>
         <li>Open a movie file (MP4) and detect its individual shots automatically.</li>
         <li>Display those shots as thumbnails in a grid-style storyboard for quick navigation.</li>
         <li>Hover over thumbnails to preview the corresponding shots instantly.</li>
     </ul>
-    <p><strong>ShotBoard</strong> offers a seamless way to analyze shot composition, pacing, and transitions in any MP4 video file.</p>
-
-    <img src="./Example/Screencopy.png" alt="Screenshot" style="max-width: 100%; margin: 20px 0;">
-
+    <p><strong>ShotBoard</strong> offers a seamless way to explore film storytelling.</p>
+    
+    <img src="./Example/Screencopy.jpg" alt="Screenshot">
+    
     <h2>Installation</h2>
 
     <h3>Install ffmpeg</h3>
-    <p>ffmpeg is required for video processing. Follow these steps:</p>
+    <p>ffmpeg is required for video processing. Here's how to install it on Windows 10+:</p>
     <ol>
-        <li>Download ffmpeg from the <a href="https://ffmpeg.org/download.html">official website</a>.</li>
-        <li>Extract the downloaded ZIP file to a folder (e.g., <code>C:\ffmpeg</code>).</li>
-        <li>Add the <code>bin</code> folder to your PATH environment variable.</li>
-        <li>Verify installation by running <code>ffmpeg --version</code> in the command prompt.</li>
+        <li><strong>Download ffmpeg</strong>: <br>
+            - Go to the <a href="https://ffmpeg.org/download.html">ffmpeg official website</a>.<br>
+            - Under "<strong>Get packages & executable files</strong>", select a pre-built version for Windows.<br>
+            - Download the ZIP file for your system (e.g. ffmpeg-release-essentials.zip).</li>
+        <li><strong>Extract the ffmpeg files</strong>:<br>
+            - Extract the ZIP file contents to a folder of your choice (e.g. <code>C:\ffmpeg</code>).</li>
+        <li><strong>Add ffmpeg to the PATH environment variable</strong>:<br>
+            - Open the <kbd>Start</kbd> menu, search for "Environment Variables", and select "Edit the system environment variables".<br>
+            - In the "System Properties" window, click <kbd>Environment Variables</kbd>.<br>
+            - Under <strong>System variables</strong>, find the <strong>PATH</strong> variable and click <kbd>Edit</kbd>.<br>
+            - Click <kbd>New</kbd>, then enter the <code>bin</code> folder path where ffmpeg is located (e.g. <code>C:\ffmpeg\bin</code>).</li>
+        <li><strong>Test the installation</strong>:<br>
+            - Open Command Prompt and type: <code>ffmpeg --version</code>.<br>
+            - If ffmpeg is installed correctly, you’ll see version information displayed.</li>
     </ol>
-
+    
     <h3>Install Python 3.10.6</h3>
     <ol>
-        <li>Download Python from the <a href="https://www.python.org/downloads/">official website</a>.</li>
-        <li>Install Python and ensure the <code>Add Python to PATH</code> option is selected.</li>
-        <li>Verify installation by running <code>python --version</code>.</li>
+        <li><strong>Download Python</strong>: <br>
+            - Go to the <a href="https://www.python.org/downloads/">official Python website</a>.<br>
+            - Download the installer for your system (e.g. Windows x86-64 executable installer for Windows 10+).</li>
+        <li><strong>Install Python</strong>:<br>
+            - Run the installer and check the box for "Add Python to PATH".<br>
+            - Complete the installation.</li>
+        <li><strong>Verify Python installation</strong>:<br>
+            - Open Command Prompt and type: <code>python --version</code>.<br>
+            - If installed correctly, it will display the version number.</li>
     </ol>
-
-    <h3>Install Necessary Dependencies</h3>
-    <ol>
-        <li>Run <code>pip install PyQt5 opencv-python ffmpeg-python numpy</code> in the terminal.</li>
-        <li>Verify installation by running <code>pip show</code> for each package.</li>
-    </ol>
-
+    
+    <h3>Install the Necessary Dependencies</h3>
+    <pre><code>pip install PyQt5 opencv-python ffmpeg-python numpy scikit-image pyaudio matplotlib</code></pre>
+    <p>If you encounter permission issues, try:</p>
+    <pre><code>pip install --user PyQt5 opencv-python ffmpeg-python numpy scikit-image pyaudio matplotlib</code></pre>
+    
     <h2>User Guide: How to Use ShotBoard</h2>
 
     <h3>Opening a Video File</h3>
-    <p>Click <strong>File &gt; Open Video</strong> to open a video file.</p>
+    <ol>
+        <li>Click on <strong>File > Open Video</strong>.</li>
+        <li>Select the desired video file.</li>
+    </ol>
 
     <h3>Navigating Through the Video</h3>
+    Use the slider/spinbox or the arrow keys on your keyboard to navigate the video frame-by-frame or jump by larger intervals:
     <ul>
-        <li><strong>Left/Right Arrow:</strong> Move backward/forward by 1 frame.</li>
-        <li><strong>Shift + Arrow:</strong> Move by 5 frames.</li>
-        <li><strong>Ctrl + Arrow:</strong> Move by 1 second.</li>
-        <li><strong>Alt + Arrow:</strong> Move by 10 seconds.</li>
+        <li><strong>Left/Right Arrow</strong>: Move backward or forward by 1 frame.</li>
+        <li><strong>Shift + Left/Right Arrow</strong>: Move backward or forward by 4 frames.</li>
+        <li><strong>Ctrl + Left/Right Arrow</strong>: Move backward or forward by 1 second.</li>
+        <li><strong>Alt + Left/Right Arrow</strong>: Move backward or forward by 4 seconds.</li>
     </ul>
 
     <h3>Scanning and Detecting Shots</h3>
-    <p>Click <strong>Edit &gt; Scan Shots</strong> to detect shots automatically.</p>
-
+    <ol>
+        <li>Select the only available shot in the board (if not already selected).</li>
+        <li>Click <kbd>Scan selected shots</kbd>.</li>
+        <li>ShotBoard will analyze the video and display the detected shots as thumbnails.</li>
+    </ol>
+    <p>Tip: To display a detection graph in realtime, unable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.</p>
+    
     <h3>Saving and Opening Shot Lists</h3>
+    <p>Save detected shots for later:</p>
     <ul>
-        <li><strong>Save:</strong> Click <strong>File &gt; Save</strong>.</li>
-        <li><strong>Open:</strong> Click <strong>File &gt; Open Shot List</strong>.</li>
+        <li>To save, click <strong>File > Save</strong> or <strong>File > Save As</strong>.</li>
+        <li>To load a previously saved shot list, click <strong>File > Open Shot List</strong>.</li>
     </ul>
 
     <h3>Visualizing Shots</h3>
-    <p>Hover over thumbnails to preview shots; thumbnails animate as long as you hover.</p>
+    <ul>
+        <li>To preview a shot, hover the mouse cursor over a shot thumbnail. The thumbnail will animate and play the shot as long as you hover it.</li>
+        <li>To display a thumbnail as 'line drawings', check the <kbd>Lines</kbd> box and hover the thumbnail again. The greater the number, the darker the lines.</li>
+        <li>Disable <kbd>Lines</kbd> to display thumbnails as video frames again.</li>
+    </ul>
+    <p>Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thumbnails as 'lines'.</p>
+
+    <h3>Setting the Video to the Beginning of a Specific Shot</h3>
+    <ul>
+        <li>Click on a shot thumbnail to set the video to the start of that shot.</li>
+    </ul>
 
     <h3>Correcting Shot Detection Errors</h3>
     <ul>
-        <li><strong>Add a New Shot:</strong> Use the slider to position and click <strong>Insert new shot starting at this frame</strong>.</li>
-        <li><strong>Merge Shots:</strong> Select shots and click <strong>Merge selected shots</strong>.</li>
+        <li>Select the incriminated shot (<strong>Shift + Click</strong> to add more shots to the selection).</li>
+        <li>Decrease the similarity threshold from 0.25 to around 0.10 and click on <kbd>Scan selected shots</kbd> again. New detected shots will automatically be added to the list.</li></li>
     </ul>
+    <p>If a shot still incorrectly contains multiple shots:</p>
+    <ul>
+        <li>Use the slider/spinbox or arrow keys to locate the frame where the first undetected shot begins.</li>
+        <li>Click <strong>Mark current frame as new shot</strong>. A new shot will be added to the list.</li>
+        <li>Repeat until all shots are correctly separated.</li>
+    </ul>
+    
+    <h3>Merging Shots</h3>
+    <ol>
+        <li>Select multiple shots using <kbd>Shift + Click</kbd>.</li>
+        <li>Click <kbd>Merge selected shots</kbd>.</li>
+    </ol>
 
-    <div class="footer">
-        <p><strong>ShotBoard</strong> provides an intuitive and efficient way to explore cinema. Happy storyboarding and analyzing! 🎥✨</p>
-    </div>
+    <h3>Tips</h3>
+    <p>Although ShotBoard will successfully detect most of the shots, it may struggle when:</p>
+    <ul>
+        <li>Transitions are blurry (e.g. fading to white or black, crossfading, strong motion blur)</li>
+        <li>The lighting is stroboscopic (e.g. lightning, flashing lights)</li>
+        <li>Images are choppy (e.g. faked slow motion in post)</li>
+    </ul>
+    <p>To avoid overdetecting shots:</p>
+    <ol>
+        <li>Start by scanning at a similarity threshold around 0.25.</li>
+        <li>Merge overdetected shots.</li>
+        <li>Decrease the similarity threshold to around 0.10, then re-scan the underdetected shots as you see fit.</li>
+    </ol>
+
+    <h2>Conclusion</h2>
+    <p>ShotBoard provides an intuitive way to analyze movies, study cinematic storytelling and explore editing techniques. Displaying shots as animated 'line drawings' can tremendously help studying storyboarding.</p>
+    <p>We hope you enjoy using ShotBoard and find it helpful in your creative or analytical endeavors. If you have any feedback, suggestions, or run into issues, please don’t hesitate to reach out or contribute</p>
 </body>
 </html>
