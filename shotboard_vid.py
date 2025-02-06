@@ -18,23 +18,34 @@ class AudioPlayer(QThread):
     """Plays audio in a separate thread using PyAudio."""
     def __init__(self, video_path, start_pos, volume, sync_mutex, sync_condition, parent=None):
         super().__init__(parent)
+
         self._video_path = video_path
         self._start_pos = start_pos
         self._volume = max(0.0, min(1.0, volume))  # Ensure valid range
+
         self._running = True
-        self._sync_mutex = sync_mutex
-        self._sync_condition = sync_condition  # Shared condition
+        # self._sync_mutex = sync_mutex
+        # self._sync_condition = sync_condition  # Shared condition
         self.ready = True # False  # Flag to track readiness
         self.elapsed_time = 0  # Keep track of playback time
+        self._process_mutex = QMutex()  # Add a mutex for process safety
+
+        self._audio = None
+        self._audio_stream = None
 
 
     def run(self):
         """Starts FFmpeg process for audio and streams it to PyAudio."""
+        ## CRITICAL SECTION ####################
+        self._process_mutex.lock()  # 🔒
+        if not self._running:
+            self._process_mutex.unlock()  # 🔓
+            return
         # i=-23 → Target integrated loudness (LUFS).
         # tp=-2 → True peak limit (-2 dB to prevent clipping).
         # lra=11 → Loudness range adjustment.
         # measured_I=-self._volume * 23 → Adjust perceived volume dynamically based on self._volume.
-        self.process = (
+        self._process = (
             ffmpeg
             .input(self._video_path, ss=self._start_pos)
             #.filter('volume', f'{self._volume * 2}')
@@ -45,9 +56,11 @@ class AudioPlayer(QThread):
             #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
-        audio = pyaudio.PyAudio()
-        #audio_stream = audio.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True)
-        audio_stream = audio.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True, frames_per_buffer=AUDIO_BUFFER_SIZE)
+        self._audio = pyaudio.PyAudio()
+        #self._audio_stream = self._audio.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True)
+        self._audio_stream = self._audio.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True, frames_per_buffer=AUDIO_BUFFER_SIZE)
+        self._process_mutex.unlock()  # 🔓
+        ## END CRITICAL SECTION ################
 
         # Wait for VideoPlayer to be ready before starting playback
         ## CRITICAL SECTION ####################
@@ -61,19 +74,36 @@ class AudioPlayer(QThread):
         timer.start()
 
         while self._running:
-            audio_bytes = self.process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
+            ## CRITICAL SECTION ####################
+            self._process_mutex.lock() # 🔒
+            if not self._running or self._process.poll() is not None:
+                self._process_mutex.unlock()  # 🔓
+                break  
+            audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
+            self._process_mutex.unlock()  # 🔓
+            ## END CRITICAL SECTION ################
+
             if not audio_bytes:
+                print("Error: Cannot read audio buffer.")
                 break
-            audio_stream.write(audio_bytes)  # Play audio in real-time
+
+            self._audio_stream.write(audio_bytes)  # Play audio in real-time
             self.elapsed_time = timer.elapsed() * 0.001  # Convert to seconds
 
         # Cleanup
-        audio_stream.stop_stream()
-        audio_stream.close()
-        audio.terminate()
-        self.process.stdout.close()
-        self.process.stderr.close()
-        self.process.wait()
+        ## CRITICAL SECTION ####################
+        self._process_mutex.lock()  # 🔒
+        if self._audio_stream:
+            self._audio_stream.stop_stream()
+            self._audio_stream.close()
+            self._audio.terminate()
+        if hasattr(self, '_process'):
+            self._process.stdout.close()
+            self._process.stderr.close()
+            self._process.terminate()  # kill
+            self._process.wait()
+        self._process_mutex.unlock()  # 🔓
+        ## END CRITICAL SECTION ################
 
 
     def get_audio_time(self):
@@ -84,9 +114,19 @@ class AudioPlayer(QThread):
     def stop(self):
         """Stops audio playback cleanly."""
         self._running = False
-        if hasattr(self, 'process'):
-            self.process.terminate()
-            self.process.wait()
+        ## CRITICAL SECTION ####################
+        self._process_mutex.lock()  # 🔒
+        if self._audio_stream:
+            self._audio_stream.stop_stream()
+            self._audio_stream.close()
+            self._audio.terminate()
+        if hasattr(self, '_process'):
+            self._process.stdout.close()
+            self._process.stderr.close()
+            self._process.terminate()  # kill
+            self._process.wait()
+        self._process_mutex.unlock()  # 🔓
+        ## END CRITICAL SECTION ################
         self.wait()
 
 
@@ -100,7 +140,6 @@ class VideoPlayer(QThread):
 
     def __init__(self, video_path, fps, start_frame_index, end_frame_index, volume, detect_edges, edge_factor, parent=None):
         super().__init__(parent)
-        print(f"edge_factor={edge_factor}")
         self._video_path = video_path
         self._fps = fps
         self._start_frame_index = start_frame_index
@@ -116,6 +155,9 @@ class VideoPlayer(QThread):
         self._sync_mutex = QMutex()
         self._sync_condition = QWaitCondition()
 
+        frame_height, frame_width = self._get_frame_size()
+        self._frame_size = (frame_height, frame_width, 3)
+
 
     def run(self):
         if not os.path.isfile(self._video_path):
@@ -129,12 +171,12 @@ class VideoPlayer(QThread):
         # Start video process (only video)
         ## CRITICAL SECTION ####################
         self._process_mutex.lock()  # 🔒
-        if not self._running:  # Double-check after acquiring the lock
-            self.frame_signal.disconnect()
+        if not self._running:
+            self.safe_disconnect()
             self._process_mutex.unlock()  # 🔓
             return
         if self._detect_edges:
-            self.process = (
+            self._process = (
                 ffmpeg
                 .input(self._video_path, ss=start_pos)
                 .filter('format', 'gray')  # Convert to grayscale
@@ -147,7 +189,7 @@ class VideoPlayer(QThread):
                 .run_async(pipe_stdout=True, pipe_stderr=True)
             )
         else:
-            self.process = (
+            self._process = (
                 ffmpeg
                 .input(self._video_path, ss=start_pos)
                 .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
@@ -155,10 +197,6 @@ class VideoPlayer(QThread):
             )
         self._process_mutex.unlock()  # 🔓
         ## END CRITICAL SECTION ################
-
-        frame_height, frame_width = self._get_frame_size()
-        frame_size = (frame_height, frame_width, 3)
-        frame_index = self._start_frame_index
 
         timer = QElapsedTimer()
         TARGET_TIME = 1000 / self._fps  # Desired frame interval in ms
@@ -168,7 +206,7 @@ class VideoPlayer(QThread):
             ## CRITICAL SECTION ####################
             self._process_mutex.lock()  # 🔒
             if not self._running:  # In case stop() was called before creating the thread
-                self.frame_signal.disconnect()
+                self.safe_disconnect()
                 self._process_mutex.unlock()  # 🔓
                 return
             self._audio_thread = AudioPlayer(self._video_path, start_pos, self._volume, self._sync_mutex, self._sync_condition)
@@ -178,43 +216,44 @@ class VideoPlayer(QThread):
 
             # Wait until the audio thread is ready
             ## CRITICAL SECTION ####################
-            self._sync_mutex.lock() # 🔒
-            while not self._audio_thread.ready:  # Wait for audio thread readiness
-                self._sync_mutex.unlock()  # 🔓
-                QThread.msleep(1)  # Prevent busy-waiting
-                self._sync_mutex.lock() # 🔒
+            # self._sync_mutex.lock() # 🔒
+            # while not self._audio_thread.ready:  # Wait for audio thread readiness
+            #     self._sync_mutex.unlock()  # 🔓
+            #     QThread.msleep(1)  # Prevent busy-waiting
+            #     self._sync_mutex.lock() # 🔒
 
             # Signal the AudioPlayer that the video is ready
-            self._sync_condition.wakeAll()
-            self._sync_mutex.unlock()  # 🔓
+            # self._sync_condition.wakeAll()
+            # self._sync_mutex.unlock()  # 🔓
             ## END CRITICAL SECTION ################
 
+        frame_index = self._start_frame_index
         while self._running and frame_index < self._end_frame_index:
             timer.start()
             
             # Ensure process isn't stopped before reading
             ## CRITICAL SECTION ####################
             self._process_mutex.lock() # 🔒
-            if not self._running or self.process.poll() is not None:
+            if not self._running or self._process.poll() is not None:
                 self._process_mutex.unlock()  # 🔓
                 break  
-            in_bytes = self.process.stdout.read(np.prod(frame_size))  # Read frame safely
+            video_bytes = self._process.stdout.read(np.prod(self._frame_size))  # Read frame safely
             self._process_mutex.unlock()  # 🔓
             ## END CRITICAL SECTION ################
 
-            if not in_bytes:
+            if not video_bytes:
                 print("Error: Cannot read frame.")
                 break
 
-            if len(in_bytes) == np.prod(frame_size):
-                frame = np.frombuffer(in_bytes, np.uint8).reshape(frame_size)
+            if len(video_bytes) == np.prod(self._frame_size):
+                frame = np.frombuffer(video_bytes, np.uint8).reshape(self._frame_size)
                 h, w, ch = frame.shape
                 bytes_per_line = ch * w
                 qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
 
                 self.frame_signal.emit(qimg, frame_index)
             else:
-                print(f"Error: Frame size mismatch. Expected {np.prod(frame_size)} bytes, got {len(in_bytes)} bytes.")
+                print(f"Error: Frame size mismatch. Expected {np.prod(self._frame_size)} bytes, got {len(video_bytes)} bytes.")
                 break
 
             frame_index += 1
@@ -244,16 +283,25 @@ class VideoPlayer(QThread):
         self.cleanup()
 
 
+    def safe_disconnect(self):
+        try:
+            self.frame_signal.disconnect()
+        except TypeError:
+            pass
+
+
     def cleanup(self):
-        self.frame_signal.disconnect()
+        self._running = False
+        self.safe_disconnect()
         ## CRITICAL SECTION ####################
         self._process_mutex.lock()  # 🔒
-        if hasattr(self, 'process'):
-            self.process.stdout.close()
-            self.process.stderr.close()
-            self.process.wait()
         if self._audio_thread:
             self._audio_thread.stop()
+        if hasattr(self, '_process'):
+            self._process.stdout.close()
+            self._process.stderr.close()
+            self._process.terminate()  # kill
+            self._process.wait()
         self._process_mutex.unlock()  # 🔓
         ## END CRITICAL SECTION ################
 
@@ -268,16 +316,19 @@ class VideoPlayer(QThread):
 
     def stop(self):
         self._running = False
+        self.safe_disconnect()
+        self.quit()
         ## CRITICAL SECTION ####################
         self._process_mutex.lock()  # 🔒
         if self._audio_thread:
             self._audio_thread.stop()
-        if hasattr(self, 'process'):
-            self.process.terminate()
-            self.process.wait()
+        if hasattr(self, '_process'):
+            self._process.stdout.close()
+            self._process.stderr.close()
+            self._process.terminate()  # kill
+            self._process.wait()
         self._process_mutex.unlock()  # 🔓
         ## END CRITICAL SECTION ################
-
         self.wait()
 
 

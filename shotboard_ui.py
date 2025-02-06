@@ -35,7 +35,7 @@ SHOT_WIDGET_HIDE_CURSOR_TIMEOUT = 250  # in ms
 
 class ShotWidget(QFrame):
     clicked = pyqtSignal(bool)  # Signal includes a boolean to indicate Shift key status
-    active_videoplayer = None  # Static variable: tracks the currently playing VideoPlayer instance
+    # active_videoplayer = None  # Static variable: tracks the currently playing VideoPlayer instance
     volume = 0
     detect_edges = False
     edge_factor = 1.0
@@ -185,7 +185,6 @@ class ShotWidget(QFrame):
                 .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
                 .compile()
             )
- 
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = process.communicate()
         if process.returncode != 0:
@@ -205,12 +204,11 @@ class ShotWidget(QFrame):
 
     def on_image_label_enter(self):
         self._cursor_timer.start()  # Start tracking inactivity
-        if ShotWidget.active_videoplayer:
-            ShotWidget.active_videoplayer.stop()  # Stop any existing player
-            ShotWidget.active_videoplayer = None
-
+        # if ShotWidget.active_videoplayer:
+        #     ShotWidget.active_videoplayer.stop()  # Stop any existing player
+        #     ShotWidget.active_videoplayer = None
         self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.detect_edges, ShotWidget.edge_factor)
-        ShotWidget.active_videoplayer = self._videoplayer
+        # ShotWidget.active_videoplayer = self._videoplayer
         if self._videoplayer:
             self._videoplayer.frame_signal.connect(self.update_frame)
             self._videoplayer.start()  # Start the video rendering thread
@@ -222,8 +220,8 @@ class ShotWidget(QFrame):
         if self._videoplayer:
             self._videoplayer.stop()
             self._videoplayer = None
-            if ShotWidget.active_videoplayer == self._videoplayer:
-                ShotWidget.active_videoplayer = None
+            # if ShotWidget.active_videoplayer == self._videoplayer:
+            #     ShotWidget.active_videoplayer = None
 
 
     def update_frame(self, qimage, frame_index):

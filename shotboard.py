@@ -30,7 +30,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -239,14 +239,6 @@ class ShotBoard(QMainWindow):
         action.triggered.connect(self.deselect_all)
         edit_menu.addAction(action)
         #action.setDisabled(True)
-
-        edit_menu.addSeparator()
-
-        # Create 'Scan shots' action
-        action = QAction('Scan Shots', self)
-        action.triggered.connect(self.on_menu_scan_shots)
-        edit_menu.addAction(action)
-        action.setDisabled(True)
 
 
     @log_function_name()
@@ -500,11 +492,6 @@ class ShotBoard(QMainWindow):
         reply = QMessageBox.question(self, 'Confirm Exit', 'Exit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.close()
-
-
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
-    def on_menu_scan_shots(self):
-        self.detect_shots_ssim()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1070,7 +1057,7 @@ class ShotBoard(QMainWindow):
 
         # Display the total time taken to detect shots
         total_time_hms = QTime(0, 0).addMSecs(start_timer.elapsed()).toString("hh:mm:ss")
-        print(f"Shots detected in {total_time_hms}")
+        #print(f"Shots detected in {total_time_hms}")
         start_timer.invalidate()
 
         # Close the graph if it's still open
