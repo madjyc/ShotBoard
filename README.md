@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.4.1-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.4.2-blue.svg)
 
-# ShotBoard v0.4.1
+# ShotBoard v0.4.2
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot

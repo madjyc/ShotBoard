@@ -9,14 +9,21 @@ class ShotBoardDb:
     def __init__(self):
         self._frame_count = 0
         self._shots = [] # contains the start frame number of each shot (integer)
+        self._is_dirty = False
+
+
+    def is_dirty(self):
+        return self._is_dirty
 
 
     def clear_shots(self):
         self._shots.clear()
+        self._is_dirty = True
 
 
     def set_shot_count(self, frame_count):
         self._frame_count = frame_count
+        self._is_dirty = True
 
 
     def get_frame_count(self):
@@ -26,17 +33,20 @@ class ShotBoardDb:
     def set_shots(self, frame_count, frames):
         self.set_shot_count(frame_count)
         self._shots = sorted(list(set(frames)))
+        self._is_dirty = True
 
 
     def add_shot(self, start_frame):
         index = bisect.bisect_left(self._shots, start_frame)
         self._shots.insert(index, start_frame)
+        self._is_dirty = True
         return index
 
 
     def del_shot(self, frame):
         if frame in self._shots:
             self._shots.remove(frame)
+            self._is_dirty = True
 
 
     def get_shot(self, shot_index):
@@ -75,6 +85,7 @@ class ShotBoardDb:
     # Example usage: del db[shot_index]
     def __delitem__(self, shot_index):
         del self._shots[shot_index]
+        self._is_dirty = True
 
 
     # Example usage: len(db)
@@ -100,6 +111,7 @@ class ShotBoardDb:
         }
         with open(filename, 'w', encoding='utf-8') as json_file:
             json.dump(data, json_file)
+        self._is_dirty = False
 
 
     def load_from_json(self, filename=DEFAULT_JSON_FILENAME):
@@ -114,6 +126,7 @@ class ShotBoardDb:
             print(f"Error loading JSON: {e}")
         except Exception as e:
             print(f"An error occurred while loading data: {e}")
+        self._is_dirty = False
 
 
 # TEST

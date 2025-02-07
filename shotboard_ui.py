@@ -21,7 +21,7 @@ SHOT_WIDGET_RESCAN_COLOR = "#3ad98a"  # green
 SHOT_WIDGET_WIDTH = SHOT_WIDGET_IMAGE_WIDTH + 2 * SHOT_WIDGET_MARGIN + 2
 SHOT_WIDGET_HEIGHT = SHOT_WIDGET_IMAGE_HEIGHT + SHOT_WIDGET_PROGRESSBAR_HEIGHT + 2 * SHOT_WIDGET_MARGIN + 2
 
-SHOT_WIDGET_HIDE_CURSOR_TIMEOUT = 250  # in ms
+SHOT_WIDGET_HIDE_CURSOR_TIMEOUT = 200  # in ms
 
 # frame_thickness = self._scroll_area.frameWidth()
 # scrollarea_height = self._scroll_area.viewport().height()
@@ -225,6 +225,7 @@ class ShotWidget(QFrame):
 
 
     def update_frame(self, qimage, frame_index):
+        print(f"Updating frame {frame_index}")
         pixmap = QPixmap.fromImage(qimage)
         scaled_pixmap = pixmap.scaled(
             self._image_label.maximumWidth(),

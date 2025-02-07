@@ -21,6 +21,7 @@ from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 import os
 import sys
+import datetime
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTimer, QTime, QElapsedTimer
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QShortcut, QMessageBox, QFileDialog, QProgressDialog
 from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
@@ -30,7 +31,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -100,6 +101,9 @@ class ShotBoard(QMainWindow):
         self._selection_index_last = None
         self._video_path = None
         self._fps = 0
+        self._frame_width = 0
+        self._frame_height = 0
+        self._duration = 0
         self._start_frame_index = None
         self._frame_count = None
 
@@ -144,6 +148,7 @@ class ShotBoard(QMainWindow):
 
         QApplication.instance().installEventFilter(self)  # Install global event filter
 
+        self.create_status_bar()
         self.statusBar().showMessage("Load a video.")
         self.update_ui_state()
 
@@ -155,6 +160,22 @@ class ShotBoard(QMainWindow):
     ## MENU, MAIN WIDGETS
     ##
     
+
+    @log_function_name()
+    def create_status_bar(self):
+        # Create the status bar
+        self._status_bar = self.statusBar()
+
+        # Add a QLabel for a static message (bottom left)
+        #self.status_label = QLabel("Ready")
+        #self._status_bar.addWidget(self.status_label)
+
+        # Add another QLabel aligned to the bottom right
+        self._info_label = QLabel()
+        self._status_bar.addPermanentWidget(self._info_label)  # Aligns to the right
+        self.update_status_bar()
+
+
     @log_function_name()
     def create_menu(self):
         # Create a menu bar
@@ -465,6 +486,7 @@ class ShotBoard(QMainWindow):
             else:
                 QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
                 self._db.clear_shots()
+        self.update_window_title()
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -473,6 +495,7 @@ class ShotBoard(QMainWindow):
             self._db.save_to_json(self._db_filename)
         else:
             self.on_menu_save_as()
+        self.update_window_title()
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -480,11 +503,12 @@ class ShotBoard(QMainWindow):
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self, "Save Shot File", self._db_filename, "Shot Files (*.json);;All Files (*)", options=options)
         if filename:
-            if os.path.exists(filename) and not QMessageBox.question(self, 'File Exists', f"The file {filename} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
-                return
+            #if os.path.exists(filename) and not QMessageBox.question(self, 'File Exists', f"The file {filename} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+            #    return
             self._db.save_to_json(filename)
             self._db_filename = filename
             # self.push_filename_to_recent(filename)  # update 'Open Recent' menu.
+            self.update_window_title()
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -683,6 +707,21 @@ class ShotBoard(QMainWindow):
     ##
     ## UPDATES
     ##
+   
+
+    @log_function_name()
+    def update_status_bar(self):
+        duration_hms = str(datetime.timedelta(seconds=int(self._duration)))
+        duration_h = self._duration / 3600 if self._duration > 0 else 1  # Prevent division by zero
+        shots_per_hour = round(len(self._db) / duration_h)
+
+        self._info_label.setText(
+            f"FPS: {self._fps:.3f} | "
+            f"Resolution: {self._frame_width}x{self._frame_height} | "
+            f"Duration: {duration_hms} | "
+            f"Shots: {len(self._db)} | "
+            f"Shots/hour: {shots_per_hour}"
+        )
 
 
     # Ne cause pas de réactions en chaîne.
@@ -693,8 +732,13 @@ class ShotBoard(QMainWindow):
             title += f" - {self._video_path}"
         else:
             title += " - (undefined)"
-        self.setWindowTitle(title)
     
+        # Add '*' if database has unsaved changes
+        if self._db.is_dirty():
+            title += " *"
+
+        self.setWindowTitle(title)
+
     
     def update_ui_state(self):
         enabled = (self._video_path != None)
@@ -703,9 +747,9 @@ class ShotBoard(QMainWindow):
         self._play_button.setEnabled(enabled)
         self._stop_button.setEnabled(enabled)
         self._split_button.setEnabled(enabled)
-        self._scan_button.setEnabled(not self.IsSelectionEmpty())
-        self._merge_button.setEnabled(not self.IsSelectionEmpty())
-        #self._detection_slider.setEnabled(not self.IsSelectionEmpty())
+        self._scan_button.setEnabled(not self.is_selection_empty())
+        self._merge_button.setEnabled(not self.is_selection_empty())
+        #self._detection_slider.setEnabled(not self.is_selection_empty())
 
 
     def update_slider_and_spinbox(self, frame_index):
@@ -729,6 +773,7 @@ class ShotBoard(QMainWindow):
         self._video_path = None
         self._fps = 0
         self.update_ui_state()
+        self.update_window_title()
         self.statusBar().showMessage("Load a video.")
 
 
@@ -742,7 +787,7 @@ class ShotBoard(QMainWindow):
         self._selected_shot_widget = None
 
 
-    def create_shot_widgets(self, frame_index):
+    def create_shot_widget(self, frame_index):
         shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(frame_index))
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
         return shot_widget
@@ -763,12 +808,14 @@ class ShotBoard(QMainWindow):
         for i, frame_index in enumerate(self._db):
             if progress_dialog.wasCanceled():
                 break
-            shot_widget = self.create_shot_widgets(frame_index)
+            shot_widget = self.create_shot_widget(frame_index)
             self._shot_widgets.append(shot_widget)
             progress_dialog.setValue(i + 1)
 
         progress_dialog.close()
         self.update_grid_layout()
+        self.update_status_bar()
+        self.update_window_title()
 
 
     @log_function_name()
@@ -801,6 +848,8 @@ class ShotBoard(QMainWindow):
             widget.hide()
             widget.deleteLater()
 
+        self.update_status_bar()
+
 
     ##
     ## ACTIONS
@@ -819,6 +868,9 @@ class ShotBoard(QMainWindow):
         cap = cv2.VideoCapture(self._video_path)
         self._fps = cap.get(cv2.CAP_PROP_FPS)
         self._frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self._frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self._frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self._duration = self._frame_count / self._fps if self._fps > 0 else 0  # in seconds
         cap.release()
 
         self._db.clear_shots()
@@ -835,9 +887,12 @@ class ShotBoard(QMainWindow):
 
         self._db.add_shot(0)  # Add a single shot covering the whole video
         self.clear_shot_widgets()
-        shot_widget = self.create_shot_widgets(0)
+        shot_widget = self.create_shot_widget(0)
         self._shot_widgets.append(shot_widget)
+
         self.update_grid_layout()
+        self.update_status_bar()
+        self.update_window_title()
 
         self.select_shot_widget(0)
         self.update_ui_state()
@@ -1067,6 +1122,8 @@ class ShotBoard(QMainWindow):
 
         # Update the grid layout
         self.update_grid_layout()
+        self.update_status_bar()
+        self.update_window_title()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1074,6 +1131,8 @@ class ShotBoard(QMainWindow):
         assert self._shot_widgets
         if not self._shot_widgets:
             return
+        
+        self.deselect_all()
 
         # Get the current frame and evaluate the start and end frames of the shot
         cut_frame_index = self._seek_spinbox.value()  # integer
@@ -1095,6 +1154,10 @@ class ShotBoard(QMainWindow):
 
         # Update the grid layout
         self.update_grid_layout()
+        self.update_status_bar()
+        self.update_window_title()
+
+        self.select_shot_widget(shot_index)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1103,7 +1166,7 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return None
 
-        if self.IsSelectionEmpty():
+        if self.is_selection_empty():
             return None
 
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
@@ -1127,6 +1190,8 @@ class ShotBoard(QMainWindow):
         
         # Update the grid layout
         self.update_grid_layout()
+        self.update_status_bar()
+        self.update_window_title()
 
         # Reselect the first shot widget
         self.select_shot_widget(shot_index_min)
@@ -1141,7 +1206,7 @@ class ShotBoard(QMainWindow):
 
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
-    def IsSelectionEmpty(self):
+    def is_selection_empty(self):
         return self._selection_index_first == None
 
 
