@@ -31,7 +31,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -465,9 +465,26 @@ class ShotBoard(QMainWindow):
     def on_menu_open_video(self):
         file_dialog = QFileDialog()
         file_dialog.setAcceptMode(QFileDialog.AcceptOpen)
-        file_dialog.setNameFilter("Video files (*.mp4 *.avi *.mkv)")
+        file_dialog.setNameFilter("Video files (*.mp4 *.avi)")
         if file_dialog.exec_() == QFileDialog.Accepted:
-            self.set_video(file_dialog.selectedUrls()[0])
+            # video_path = file_dialog.selectedUrls()[0].toLocalFile()  # Convert to string path
+            url = file_dialog.selectedUrls()[0]
+            self.set_video(url)
+
+            # Check for a matching JSON file
+            if self._video_path:
+                json_path = os.path.splitext(self._video_path)[0] + ".json"
+                if os.path.exists(json_path):
+                    json_filename = os.path.basename(json_path)  # Extract filename only
+                    reply = QMessageBox.question(
+                        self,
+                        "Load Shotlist?",
+                        f"A matching shot list was found:\n{json_filename}\nDo you want to load it?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
+                    )
+                    if reply == QMessageBox.Yes:
+                        self.open_shot_list(json_path)
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -476,17 +493,8 @@ class ShotBoard(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please load a video first.")
             return
         options = QFileDialog.Options()
-        filename, _ = QFileDialog.getOpenFileName(self, "Open Shot File", None, "Shot Files (*.json);;All Files (*)", options=options)
-        if filename:
-            self._db.load_from_json(filename)
-            self._db_filename = filename
-            #self.add_filename_to_recent(filename)  # update 'Open Recent' menu.
-            if self._frame_count == self._db.get_frame_count():
-                self.create_and_display_shot_widgets()
-            else:
-                QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
-                self._db.clear_shots()
-        self.update_window_title()
+        json_path, _ = QFileDialog.getOpenFileName(self, "Open Shot File", None, "Shot Files (*.json);;All Files (*)", options=options)
+        self.open_shot_list(json_path)
 
 
     @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
@@ -856,13 +864,27 @@ class ShotBoard(QMainWindow):
     ##
 
 
+    def open_shot_list(self, json_path):
+        if json_path:
+            self._db.load_from_json(json_path)
+            self._db_filename = json_path
+            #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
+            if self._frame_count == self._db.get_frame_count():
+                self.create_and_display_shot_widgets()
+            else:
+                QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
+                self._db.clear_shots()
+        self.update_window_title()
+
+
     @log_function_name(color=PRINT_YELLOW_COLOR)
     def set_video(self, url):
         assert url
         if not url:
             return
         
-        self._video_path = url.toString().replace('file:///', '')
+        #self._video_path = url.toString().replace('file:///', '')
+        self._video_path = url.toLocalFile()
         self.update_window_title()
 
         cap = cv2.VideoCapture(self._video_path)

@@ -210,7 +210,7 @@ class ShotWidget(QFrame):
         self._videoplayer = VideoPlayer(self._video_path, self._fps, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.detect_edges, ShotWidget.edge_factor)
         # ShotWidget.active_videoplayer = self._videoplayer
         if self._videoplayer:
-            self._videoplayer.frame_signal.connect(self.update_frame)
+            self._videoplayer.frame_signal.connect(self.on_frame_ready)
             self._videoplayer.start()  # Start the video rendering thread
 
 
@@ -224,8 +224,15 @@ class ShotWidget(QFrame):
             #     ShotWidget.active_videoplayer = None
 
 
+    def on_frame_ready(self):
+        assert self._videoplayer
+        if not self._videoplayer._frame_queue.empty():
+            qimage, frame_index = self._videoplayer._frame_queue.get()  # Thread-safe
+            #print(f"Start updating frame {frame_index}")
+            self.update_frame(qimage, frame_index)
+
+
     def update_frame(self, qimage, frame_index):
-        print(f"Updating frame {frame_index}")
         pixmap = QPixmap.fromImage(qimage)
         scaled_pixmap = pixmap.scaled(
             self._image_label.maximumWidth(),

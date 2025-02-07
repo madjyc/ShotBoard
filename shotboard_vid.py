@@ -1,6 +1,7 @@
 import ffmpeg
 import numpy as np
 import pyaudio
+from queue import Queue
 import os
 from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QWaitCondition
 from PyQt5.QtGui import QImage
@@ -126,7 +127,7 @@ class AudioPlayer(QThread):
 
 
 class VideoPlayer(QThread):
-    frame_signal = pyqtSignal(QImage, int)  # Signal to send frames to the UI
+    frame_signal = pyqtSignal()  # Signal to send frames to the UI
 
     def __init__(self, video_path, fps, start_frame_index, end_frame_index, volume, detect_edges, edge_factor, parent=None):
         super().__init__(parent)
@@ -142,6 +143,7 @@ class VideoPlayer(QThread):
         self._running = True
         self._process_mutex = QMutex()  # Add a mutex for process safety
 
+        self._frame_queue = Queue(maxsize=5)  # Thread-safe queue
         frame_width, frame_height = self._get_frame_size()
         self._frame_size = (frame_height, frame_width, 3)
 
@@ -214,11 +216,11 @@ class VideoPlayer(QThread):
                 self._process_mutex.unlock()  # 🔓
                 break
             try:
-                print(f"Start reading frame {frame_index}")
+                #print(f"Start reading frame {frame_index}")
                 video_bytes = self._process.stdout.read(np.prod(self._frame_size))
                 if not video_bytes:
                     raise RuntimeError("Error: No video data received from FFmpeg.")
-                print(f"End reading frame {frame_index}")
+                #print(f"End reading frame {frame_index}")
             except (OSError, ValueError) as e:
                 print(f"Error reading video data: {e}")
                 video_bytes = None
@@ -237,7 +239,9 @@ class VideoPlayer(QThread):
                 bytes_per_line = ch * w
                 qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
 
-                self.frame_signal.emit(qimg, frame_index)
+                if not self._frame_queue.full():
+                    self._frame_queue.put((qimg, frame_index))  # Thread-safe
+                    self.frame_signal.emit()  # Notify UI to update
             else:
                 print(f"Error: Frame size mismatch. Expected {np.prod(self._frame_size)} bytes, got {len(video_bytes)} bytes.")
                 break
