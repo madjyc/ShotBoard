@@ -17,6 +17,10 @@ With **ShotBoard**, you can:
 **ShotBoard** offers a seamless way to explore film storytelling.
 
 ![screenshot](./Example/Screencopy.jpg)
+<p>"Video" version of the board</p>
+
+![screenshot](./Example/Sobel.jpg)
+<p>"Line drawing" version of the board</p>
 
 ## Installation
 
