@@ -21,7 +21,7 @@ class ShotBoardDb:
         self._is_dirty = True
 
 
-    def set_shot_count(self, frame_count):
+    def set_frame_count(self, frame_count):
         self._frame_count = frame_count
         self._is_dirty = True
 
@@ -30,9 +30,12 @@ class ShotBoardDb:
         return self._frame_count
 
 
-    def set_shots(self, frame_count, frames):
-        self.set_shot_count(frame_count)
-        self._shots = sorted(list(set(frames)))
+    def get_start_frame_index(self, shot_index):
+        return self._shots[shot_index]
+
+
+    def set_shots(self, frame_indices):
+        self._shots = sorted(list(set(frame_indices)))
         self._is_dirty = True
 
 
@@ -49,9 +52,13 @@ class ShotBoardDb:
             self._is_dirty = True
 
 
-    def get_shot(self, shot_index):
-        return self._shots.index(shot_index)
+    def get_shot(self, frame_index):
+        return self._shots.index(frame_index)
     
+
+    def get_shots(self):
+        return self._shots.copy()
+
 
     def get_start_end_frame_indexes(self, frame_index):
         assert frame_index >= 0
@@ -80,6 +87,10 @@ class ShotBoardDb:
     # Example usage: if start_frame in db:
     def __contains__(self, start_frame):
         return start_frame in self._shots
+
+
+    def __getitem__(self, shot_index):
+        return self._shots[shot_index]
 
 
     # Example usage: del db[shot_index]
@@ -119,7 +130,8 @@ class ShotBoardDb:
         try:
             with open(filename, 'r', encoding='utf-8') as json_file:
                 data = json.load(json_file)
-                self.set_shots(data["frame_count"], data["shots"])
+                self.set_frame_count(data["frame_count"])
+                self.set_shots(data["shots"])
         except FileNotFoundError:
             print(f"File not found: {filename}")
         except json.JSONDecodeError as e:

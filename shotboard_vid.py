@@ -50,7 +50,6 @@ class AudioPlayer(QThread):
         # tp=-2 → True peak limit (-2 dB to prevent clipping).
         # lra=11 → Loudness range adjustment.
         # measured_I=-self._volume * 23 → Adjust perceived volume dynamically based on self._volume.
-        print("Creating audio process...")
         self._process = (
             ffmpeg
             .input(self._video_path, ss=self._start_pos)
@@ -62,7 +61,6 @@ class AudioPlayer(QThread):
             #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
             .run_async(pipe_stdout=True, pipe_stderr=True)
         )
-        print("Audio process created.")
         self._process_mutex.unlock()  # 🔓
         ## END CRITICAL SECTION ################
 
@@ -78,16 +76,21 @@ class AudioPlayer(QThread):
             try:
                 audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
                 if not audio_bytes:
-                    raise RuntimeError("Error: No audio data received from FFmpeg.")
+                    raise RuntimeError("Error: No audio data received from ffmpeg.")
             except (OSError, ValueError) as e:
-                print(f"Error reading video data: {e}")
+                print(f"Error reading audio data: {e}")
                 audio_bytes = None
                 self._process_mutex.unlock()  # 🔓
                 break
             self._process_mutex.unlock()  # 🔓
             ## END CRITICAL SECTION ################
 
-            self._audio_stream.write(audio_bytes)  # Play audio in real-time
+            try:
+                self._audio_stream.write(audio_bytes)  # Play audio in real-time
+            except (OSError) as e:
+                print(f"Error playing audio data: {e}")
+                break
+
             self.elapsed_time = timer.elapsed() * 0.001  # Convert to seconds
 
         self.cleanup()
@@ -160,7 +163,6 @@ class VideoPlayer(QThread):
         # Start video process (only video)
         ## CRITICAL SECTION ####################
         self._process_mutex.lock()  # 🔒
-        print("Creating video process...")
         if not self._running:
             self.safe_disconnect()
             self._process_mutex.unlock()  # 🔓
@@ -185,7 +187,6 @@ class VideoPlayer(QThread):
                 .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                 .run_async(pipe_stdout=True, pipe_stderr=True)
             )
-        print("Video process created.")
         self._process_mutex.unlock()  # 🔓
         ## END CRITICAL SECTION ################
 
@@ -216,11 +217,9 @@ class VideoPlayer(QThread):
                 self._process_mutex.unlock()  # 🔓
                 break
             try:
-                #print(f"Start reading frame {frame_index}")
                 video_bytes = self._process.stdout.read(np.prod(self._frame_size))
                 if not video_bytes:
                     raise RuntimeError("Error: No video data received from FFmpeg.")
-                #print(f"End reading frame {frame_index}")
             except (OSError, ValueError) as e:
                 print(f"Error reading video data: {e}")
                 video_bytes = None
@@ -256,14 +255,12 @@ class VideoPlayer(QThread):
 
                 if time_diff < -MAX_TIME_DIFF:  # Video is behind → drop a frame
                     if frame_index < self._end_frame_index - 2:  # Last frame should always be displayed
-                        #print(f"Skipping frame {frame_index} to sync video (diff: {time_diff:.3f}s)")
                         frame_index += 1  # Drop this frame and move to the next
                     continue
 
                 remaining_time = TARGET_TIME - timer.elapsed()  # in ms
 
                 if time_diff > MAX_TIME_DIFF:  # Video is ahead → slow it down
-                    #print(f"Slowing down frame {frame_index} to sync video (diff: {time_diff:.3f}s)")
                     remaining_time += time_diff * 1000
 
                 remaining_time = int(max(0, min(remaining_time, TARGET_TIME * 2)))  # clamp to [0, 2 * TARGET_TIME]

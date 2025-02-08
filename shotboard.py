@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import datetime
+from functools import wraps
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTimer, QTime, QElapsedTimer
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QShortcut, QMessageBox, QFileDialog, QProgressDialog
 from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
@@ -31,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.4.3"
+APP_VERSION = "0.5.0"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -64,10 +65,14 @@ PRINT_YELLOW_COLOR  = '\033[93m'  # yellow
 PRINT_CYAN_COLOR = '\033[96m'  # cyan
 
 
-# Decorator
+##
+## DECORATORS
+##
+
+
 LOG_FUNCTION_NAMES = False
 
-def log_function_name(has_params=True, color=PRINT_DEFAULT_COLOR):
+def log_function_name(has_params=False, color=PRINT_DEFAULT_COLOR):
     def decorator(func):
         def wrapper(self, *args, **kwargs):
             if LOG_FUNCTION_NAMES:
@@ -77,6 +82,60 @@ def log_function_name(has_params=True, color=PRINT_DEFAULT_COLOR):
             return func(self, *args, **kwargs) if has_params else func(self)
         return wrapper
     return decorator
+
+
+# Undo/redo command wrapper (selection context)
+def command_selection_context(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Store context before action execution
+        old_first_index, old_last_index = self._selection_first_index, self._selection_last_index
+
+        # Execute action
+        func(self, *args, **kwargs)
+
+        # Store context after action execution
+        new_first_index, new_last_index = self._selection_first_index, self._selection_last_index
+
+        # Push undo/redo command in history
+        cmd = Command()
+        cmd.set_undo(func=self.restore_selection, data={'first_index': old_first_index, 'last_index': old_last_index})
+        cmd.set_redo(func=self.restore_selection, data={'first_index': new_first_index, 'last_index': new_last_index})
+        self._history.push(cmd)
+
+    return wrapper
+
+
+# Undo/redo command wrapper (full context)
+def command_full_context(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Store context before action execution
+        old_frame_indexes = self._db.get_shots()
+        old_first_index, old_last_index = self._selection_first_index, self._selection_last_index
+
+        # Execute action
+        result = func(self, *args, **kwargs)
+        if result is None:
+            return  # Stop execution if action was unsuccessful
+
+        # Store context after action execution
+        new_frame_indexes = self._db.get_shots()
+        new_first_index, new_last_index = self._selection_first_index, self._selection_last_index
+
+        # Push undo/redo command in history
+        cmd = Command()
+        cmd.set_undo(func=self.restore_context, data={'frame_indexes': old_frame_indexes, 'first_index': old_first_index, 'last_index': old_last_index})
+        cmd.set_redo(func=self.restore_context, data={'frame_indexes': new_frame_indexes, 'first_index': new_first_index, 'last_index': new_last_index})
+        self._history.push(cmd)
+
+        return result
+    return wrapper
+
+
+##
+##  MAIN WINDOW
+##
 
 
 class ShotBoard(QMainWindow):
@@ -89,7 +148,7 @@ class ShotBoard(QMainWindow):
             super().mousePressEvent(event)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def __init__(self, geom=QRect(100, 100, 800, 600)):
         super().__init__()
 
@@ -97,15 +156,14 @@ class ShotBoard(QMainWindow):
         self._db_filename = None
         self._history = CommandHistory()
         self._shot_widgets = []
-        self._selection_index_first = None
-        self._selection_index_last = None
+        self._selection_first_index = None
+        self._selection_last_index = None
         self._video_path = None
         self._fps = 0
+        self._frame_count = None
         self._frame_width = 0
         self._frame_height = 0
         self._duration = 0
-        self._start_frame_index = None
-        self._frame_count = None
 
         self.update_window_title()
         self.setGeometry(geom)
@@ -152,9 +210,10 @@ class ShotBoard(QMainWindow):
         self.statusBar().showMessage("Load a video.")
         self.update_ui_state()
 
-        # timer to update slide bar
+        # Timer to update the slide bar
         self._update_timer = QTimer(self) 
         self._update_timer.timeout.connect(self.on_timer_timeout)
+
 
     ##
     ## MENU, MAIN WIDGETS
@@ -163,12 +222,8 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def create_status_bar(self):
-        # Create the status bar
+        # Get the default status bar
         self._status_bar = self.statusBar()
-
-        # Add a QLabel for a static message (bottom left)
-        #self.status_label = QLabel("Ready")
-        #self._status_bar.addWidget(self.status_label)
 
         # Add another QLabel aligned to the bottom right
         self._info_label = QLabel()
@@ -236,28 +291,28 @@ class ShotBoard(QMainWindow):
         action.setShortcuts([QKeySequence.Undo])  # QKeySequence("Ctrl+Z")
         action.triggered.connect(self._history.undo)
         edit_menu.addAction(action)
-        action.setDisabled(True)
+        #action.setDisabled(True)
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Redo", self)
         action.setShortcuts([QKeySequence.Redo])  # QKeySequence("Ctrl+Y"), QKeySequence("Shift+Ctrl+Z")
         action.triggered.connect(self._history.redo)
         edit_menu.addAction(action)
-        action.setDisabled(True)
+        #action.setDisabled(True)
 
         edit_menu.addSeparator()
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Select All", self)
         action.setShortcuts([QKeySequence.SelectAll])  # Ctrl+A
-        action.triggered.connect(self.select_all)
+        action.triggered.connect(self.cmd_select_all)
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Deselect All", self)
         action.setShortcuts([QKeySequence("Ctrl+D")])
-        action.triggered.connect(self.deselect_all)
+        action.triggered.connect(self.cmd_deselect_all)
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
@@ -438,7 +493,7 @@ class ShotBoard(QMainWindow):
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setStatusTip("Click on a shot to play.")
         self._scroll_area.setStyleSheet(f"background-color: {BOARD_BACKGROUND_COLOR};")
-        self._scroll_area.clicked.connect(self.deselect_all)
+        self._scroll_area.clicked.connect(self.cmd_deselect_all)
         scrollarea_layout.addWidget(self._scroll_area)
 
         # Create a container widget to hold the grid layout
@@ -456,18 +511,17 @@ class ShotBoard(QMainWindow):
     ##
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_new(self):
         self.reset_all()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_open_video(self):
         file_dialog = QFileDialog()
         file_dialog.setAcceptMode(QFileDialog.AcceptOpen)
         file_dialog.setNameFilter("Video files (*.mp4 *.avi)")
         if file_dialog.exec_() == QFileDialog.Accepted:
-            # video_path = file_dialog.selectedUrls()[0].toLocalFile()  # Convert to string path
             url = file_dialog.selectedUrls()[0]
             self.set_video(url)
 
@@ -487,7 +541,7 @@ class ShotBoard(QMainWindow):
                         self.open_shot_list(json_path)
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_open_shotlist(self):
         if not self._video_path:
             QMessageBox.warning(self, "Warning", "Please load a video first.")
@@ -497,7 +551,7 @@ class ShotBoard(QMainWindow):
         self.open_shot_list(json_path)
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_save(self):
         if self._db_filename:
             self._db.save_to_json(self._db_filename)
@@ -506,7 +560,7 @@ class ShotBoard(QMainWindow):
         self.update_window_title()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_save_as(self):
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getSaveFileName(self, "Save Shot File", self._db_filename, "Shot Files (*.json);;All Files (*)", options=options)
@@ -519,20 +573,20 @@ class ShotBoard(QMainWindow):
             self.update_window_title()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_exit(self):
         reply = QMessageBox.question(self, 'Confirm Exit', 'Exit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.close()
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_grid_layout()
 
 
-    #@log_function_name()
+    #@log_function_name(has_params=True)
     def eventFilter(self, obj, event):
         if event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Space:
@@ -562,19 +616,19 @@ class ShotBoard(QMainWindow):
         return super().eventFilter(obj, event)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_handle_splitter_moved(self, pos, index):
         self.update_grid_layout()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_video_widget_clicked(self):
         if not self._video_path:
             return
         self.on_play_button_clicked()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_play_button_clicked(self):
         if not self._video_path:
             return
@@ -587,57 +641,43 @@ class ShotBoard(QMainWindow):
             self.resume_video()
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_stop_button_clicked(self):
         self.stop_video()
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_edge_detection_toggled(self, checked):
         ShotWidget.detect_edges = checked
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_edge_factor_changed(self, value):
         ShotWidget.edge_factor = value
 
 
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_split_button_clicked(self):
-        self.split_video()
-
-
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
-    def on_merge_button_clicked(self):
-        self.merge_selected_shots()
-
-
-    @log_function_name(has_params=False, color=PRINT_GREEN_COLOR)
-    def on_scan_button_clicked(self):
-        shot_widget = self.merge_selected_shots()
-        if shot_widget == None:
-            return
-        self.detect_shots_ssim(shot_widget.get_start_frame_index(), shot_widget.get_end_frame_index())
-
-        #if self._media_player.isMetaDataAvailable():
-        #    fps = self._media_player.metaData("VideoFrameRate")
-        #    print(fps)
-        #qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(self._start_frame_index))
-        #qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(1))
-        ##self._media_player.setPosition(1)  # first qtvid_pos of frame #1
-        #qtvid_pos = round(1000 / self._fps) - 1  # last qtvid_pos of frame #1 (= 1 frame before frame #2)
-        #self._media_player.setPosition(qtvid_pos)
-        #print(f"\n<<<<<<<<<<<<<<<<<<< position = {self._media_player.position()} >>>>>>>>>>>>>>>>>>>>\n\n")
-        #self.update_slider_and_spinbox(self._start_frame_index)
+        self.cmd_split_video()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_scan_button_clicked(self):
+        self.cmd_scan_selected_shots()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_merge_button_clicked(self):
+        self.cmd_merge_selected_shots()
+
+
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_detection_slider_moved(self, value):
         ssim_drop_threshold = self.convert_detection_slider_value_to_ssim_drop_threshold(value)
         self._detection_label.setText(f"{ssim_drop_threshold:.2f}")
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_volume_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             volume = int(self._volume_slider.minimum() + ((self._volume_slider.maximum() - self._volume_slider.minimum()) * event.x()) / self._volume_slider.width())
@@ -647,13 +687,13 @@ class ShotBoard(QMainWindow):
         QSlider.mousePressEvent(self._volume_slider, event)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_volume_slider_moved(self, volume):
         ShotWidget.volume = volume / 100
         self._media_player.setVolume(volume)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             frame_index = int(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
@@ -662,17 +702,17 @@ class ShotBoard(QMainWindow):
         QSlider.mousePressEvent(self._seek_slider, event)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_slider_moved(self, frame_index):
         self.set_qtvid_pos_to_mid_frame(frame_index)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_spinbox_changed(self, frame_index):
         self.set_qtvid_pos_to_mid_frame(frame_index)
 
 
-    @log_function_name()
+    @log_function_name(has_params=True)
     def on_mediaplayer_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
             self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
@@ -680,33 +720,35 @@ class ShotBoard(QMainWindow):
             self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
 
 
-    @log_function_name(has_params=False, color=PRINT_RED_COLOR)
+    @log_function_name(color=PRINT_RED_COLOR)
     def on_media_player_error(self):
         print(f"{PRINT_RED_COLOR}{self._media_player.errorString()}{PRINT_DEFAULT_COLOR}")
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
+        if self._update_timer.isActive():
+            self._update_timer.stop()
+        self._media_player.pause()
+
         # Fetch the shot widget emitting the signal
         shot_widget = self.sender()
         assert shot_widget
         shot_index = self._shot_widgets.index(shot_widget)
 
         if shift_pressed:  # Extends or reduce the selection
-            self.extend_shot_widget_selection(shot_index)
+            #self.extend_shot_selection(shot_index)
+            self.cmd_extend_shot_selection(shot_index)
         else:  # Select one shot
-            self.select_shot_widget(shot_index)
+            self.cmd_select_shot(shot_index)
 
-        if self._update_timer.isActive():
-            self._update_timer.stop()
-        self._media_player.pause()
-        self._start_frame_index = shot_widget.get_start_frame_index()  # integer
-        qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(self._start_frame_index))
+        start_frame_index = shot_widget.get_start_frame_index()  # integer
+        qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(start_frame_index))
         self._media_player.setPosition(qtvid_pos)
-        self.update_slider_and_spinbox(self._start_frame_index)
+        self.update_slider_and_spinbox(start_frame_index)
 
 
-    @log_function_name(has_params=False, color=PRINT_YELLOW_COLOR)
+    @log_function_name(color=PRINT_YELLOW_COLOR)
     def on_timer_timeout(self):
         frame_index = self.qtvid_pos_to_frame_index()  # float
         self.update_slider_and_spinbox(frame_index)
@@ -775,6 +817,7 @@ class ShotBoard(QMainWindow):
         self.stop_video()
         self._media_player.setPosition(0)
         self.update_slider_and_spinbox(0)
+        self._history.clear()
         self.clear_shot_widgets()
         self._db.clear_shots()
         self._db_filename = None
@@ -792,60 +835,95 @@ class ShotBoard(QMainWindow):
             widget.hide()
             widget.deleteLater()
         self._shot_widgets = []
-        self._selected_shot_widget = None
 
 
-    def create_shot_widget(self, frame_index):
-        shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(frame_index))
+    def create_shot_widget(self, widget_index, start_frame_index):
+        shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(start_frame_index))
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
+        self._shot_widgets.insert(widget_index, shot_widget)
+
+        if widget_index > 0:
+            prev_widget = self._shot_widgets[widget_index - 1]
+            prev_widget.set_end_frame_index(start_frame_index)
+
         return shot_widget
 
 
-    def create_and_display_shot_widgets(self):
-        self._shot_widgets = []
-        self._selected_shot_widget = None
+    def delete_shot_widget(self, widget_index):
+        del self._shot_widgets[widget_index]
 
-        # Create a progress dialog
-        progress_dialog = QProgressDialog("Creating shots...", "Cancel", 0, len(self._db), self)
-        progress_dialog.setWindowModality(Qt.WindowModal)
-        progress_dialog.setWindowTitle("Shot creation")
-        progress_dialog.setWindowFlags(progress_dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setValue(0)
-
-        for i, frame_index in enumerate(self._db):
-            if progress_dialog.wasCanceled():
-                break
-            shot_widget = self.create_shot_widget(frame_index)
-            self._shot_widgets.append(shot_widget)
-            progress_dialog.setValue(i + 1)
-
-        progress_dialog.close()
-        self.update_grid_layout()
-        self.update_status_bar()
-        self.update_window_title()
+        if widget_index > 0:
+            prev_shot_widget = self._shot_widgets[widget_index - 1]
+            if widget_index < len(self._shot_widgets):
+                next_shot_widget = self._shot_widgets[widget_index]
+                prev_shot_widget.set_end_frame_index(next_shot_widget.get_start_frame_index())
+            else:
+                prev_shot_widget.set_end_frame_index(self._frame_count)
 
 
     @log_function_name()
     def update_grid_layout(self):
-        # Evaluate the number of columns based on the available width and cell size.
+        progress_dialog = None
+        if len(self._db) > 0:
+            if len(self._db) > 3:
+                # Create a progress dialog
+                progress_dialog = QProgressDialog("Updating shots...", "Cancel", 0, len(self._db), self)
+                progress_dialog.setWindowModality(Qt.WindowModal)
+                progress_dialog.setWindowTitle("Shot creation")
+                progress_dialog.setWindowFlags(progress_dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+                progress_dialog.setMinimumDuration(0)
+                progress_dialog.setValue(0)
+
+            i, j = 0, 0
+            while i < len(self._shot_widgets) and j < len(self._db):
+                widget_start_frame_index = self._shot_widgets[i].get_start_frame_index()
+                db_start_frame_index = self._db[j]
+
+                if widget_start_frame_index == db_start_frame_index:
+                    # This widget is OK, move on to the next one
+                    i += 1
+                    j += 1
+                elif widget_start_frame_index < db_start_frame_index:
+                    # This widget is no longer needed, remove it
+                    self.delete_shot_widget(i)
+                else:
+                    # Start frame index in _db is missing from _shot_widgets, insert it
+                    self.create_shot_widget(i, db_start_frame_index)
+                    i += 1
+                    j += 1
+
+                if progress_dialog:
+                    progress_dialog.setValue(j)
+
+            # If any widget remain in _shot_widgets, remove them
+            while i < len(self._shot_widgets):
+                self.delete_shot_widget(i)
+
+            # If any shot remain in _db, add them at the end
+            while j < len(self._db):
+                self.create_shot_widget(len(self._shot_widgets), self._db[j])
+                j += 1
+                if progress_dialog:
+                    progress_dialog.setValue(j)
+
+            if progress_dialog:
+                progress_dialog.close()
+
+        # Update grid layout
         left_margin, top_margin, right_margin, bottom_margin = self._grid_layout.getContentsMargins()
         horz_spacing, vert_spacing = self._grid_layout.horizontalSpacing(), self._grid_layout.verticalSpacing()
 
-        available_width = self._scroll_area.width() - (left_margin + right_margin) - 2 # size of the framing itself
+        available_width = self._scroll_area.width() - (left_margin + right_margin) - 2  # Size of the framing itself
         cell_size = SHOT_WIDGET_WIDTH
-        if available_width < cell_size:
-            num_cols = 1
-        else:
-            num_cols = 1 + (available_width - cell_size) // (cell_size + horz_spacing)
+        num_cols = 1 + max(0, (available_width - cell_size) // (cell_size + horz_spacing))
 
-        # Add the widgets
-        for idx, shot_widget in enumerate(self._shot_widgets):
-            row = idx // num_cols
-            col = idx % num_cols
+        # Add widgets to the grid layout in order
+        for i, shot_widget in enumerate(self._shot_widgets):
+            row = i // num_cols
+            col = i % num_cols
             self._grid_layout.addWidget(shot_widget, row, col, 1, 1)
 
-        # Remove and delete all widgets in the layout that are not in self._shot_widgets
+        # Remove widgets from the grid layout that are no longer in _shot_widgets
         widgets_to_remove = [
             self._grid_layout.itemAt(i).widget()
             for i in range(self._grid_layout.count())
@@ -857,6 +935,7 @@ class ShotBoard(QMainWindow):
             widget.deleteLater()
 
         self.update_status_bar()
+        self.update_window_title()
 
 
     ##
@@ -864,26 +943,12 @@ class ShotBoard(QMainWindow):
     ##
 
 
-    def open_shot_list(self, json_path):
-        if json_path:
-            self._db.load_from_json(json_path)
-            self._db_filename = json_path
-            #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
-            if self._frame_count == self._db.get_frame_count():
-                self.create_and_display_shot_widgets()
-            else:
-                QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
-                self._db.clear_shots()
-        self.update_window_title()
-
-
-    @log_function_name(color=PRINT_YELLOW_COLOR)
+    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
     def set_video(self, url):
         assert url
         if not url:
-            return
+            return None
         
-        #self._video_path = url.toString().replace('file:///', '')
         self._video_path = url.toLocalFile()
         self.update_window_title()
 
@@ -895,32 +960,42 @@ class ShotBoard(QMainWindow):
         self._duration = self._frame_count / self._fps if self._fps > 0 else 0  # in seconds
         cap.release()
 
-        self._db.clear_shots()
-        self._db.set_shot_count(self._frame_count)
-
         media_content = QMediaContent(url)
         self._media_player.setMedia(media_content)  # /!\ asynchronous
         #self._media_player.setNotifyInterval(int(1/self._fps))
         self._seek_slider.setRange(0, self._frame_count - 1)
         self._seek_spinbox.setRange(0, self._frame_count - 1)
-        self._start_frame_index = 0
         self._media_player.setVolume(self._volume_slider.value())
         self._media_player.pause()
 
+        self._history.clear()
+        self._db.clear_shots()
+        self._db.set_frame_count(self._frame_count)
         self._db.add_shot(0)  # Add a single shot covering the whole video
         self.clear_shot_widgets()
-        shot_widget = self.create_shot_widget(0)
-        self._shot_widgets.append(shot_widget)
-
         self.update_grid_layout()
-        self.update_status_bar()
-        self.update_window_title()
 
-        self.select_shot_widget(0)
+        self.select_shot_widgets(0, 0)
         self.update_ui_state()
 
 
-    @log_function_name(color=PRINT_YELLOW_COLOR)
+    def open_shot_list(self, json_path):
+        if json_path:
+            self._history.clear()
+            self._db.load_from_json(json_path)
+            self._db_filename = json_path
+            #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
+            if self._frame_count != self._db.get_frame_count():
+                QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
+                self._db.clear_shots()
+                self.deselect_all()
+
+            self.update_status_bar()
+            self.update_window_title()
+            self.update_grid_layout()
+
+
+    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
     def set_qtvid_pos_to_mid_frame(self, frame_index):  # frame index as a float (e.g. 23.5)
         self.pause_video()
         self.update_slider_and_spinbox(frame_index)
@@ -983,8 +1058,31 @@ class ShotBoard(QMainWindow):
         self.stop_update_timer()
         self._media_player.stop()
 
+
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    def split_video(self, frame_index):
+        assert self._shot_widgets
+        if not self._shot_widgets:
+            return None
+
+        # Get the current frame and evaluate the start and end frames of the shot
+        start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)  # integers
+        if frame_index == start_frame_index or frame_index == end_frame_index - 1:
+            return None
+        
+        self.deselect_all()
+
+        # Insert a new frame in the database
+        shot_index = self._db.add_shot(frame_index)
+
+        # Update the grid layout
+        self.update_grid_layout()
+        self.select_shot_widgets(shot_index, shot_index)
+        
+        return shot_index
+
     
-    @log_function_name()
+    @log_function_name(has_params=True)
     def detect_shots_ssim(self, start_frame_index, end_frame_index):
         self._media_player.pause()
         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
@@ -1049,7 +1147,7 @@ class ShotBoard(QMainWindow):
             ax.set_title("Live SSIM Plot")
 
             # Create empty arrays to store SSIM values
-            x_data = np.array([], dtype=int)  # Frame indices
+            x_data = np.array([], dtype=int)  # Frame indexes
             y_data = np.array([], dtype=float)  # SSIM values
             (line,) = ax.plot([], [], "r-")  # Red line for SSIM values
 
@@ -1097,16 +1195,6 @@ class ShotBoard(QMainWindow):
                         shot_index = self._db.add_shot(cut_frame_index)
                         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(cut_frame_index)))
 
-                        # Insert a new shot widget
-                        new_shot_widget = ShotWidget(self._video_path, self._fps, cut_frame_index, end_frame_index)
-                        new_shot_widget.clicked.connect(self.on_shot_widget_clicked)
-                        self._shot_widgets.insert(shot_index, new_shot_widget)
-
-                        # Update the end frame of the previous shot widget
-                        if shot_index > 0:
-                            prev_shot_widget = self._shot_widgets[shot_index - 1]
-                            prev_shot_widget.set_end_frame_index(cut_frame_index, False)
-
                 # Shift SSIM values
                 prev_prev_ssim = prev_ssim
                 prev_ssim = current_ssim
@@ -1133,8 +1221,8 @@ class ShotBoard(QMainWindow):
         progress_dialog.close()
 
         # Display the total time taken to detect shots
-        total_time_hms = QTime(0, 0).addMSecs(start_timer.elapsed()).toString("hh:mm:ss")
-        #print(f"Shots detected in {total_time_hms}")
+        # total_time_hms = QTime(0, 0).addMSecs(start_timer.elapsed()).toString("hh:mm:ss")
+        # print(f"Shots detected in {total_time_hms}")
         start_timer.invalidate()
 
         # Close the graph if it's still open
@@ -1144,42 +1232,6 @@ class ShotBoard(QMainWindow):
 
         # Update the grid layout
         self.update_grid_layout()
-        self.update_status_bar()
-        self.update_window_title()
-
-
-    @log_function_name(color=PRINT_GREEN_COLOR)
-    def split_video(self):
-        assert self._shot_widgets
-        if not self._shot_widgets:
-            return
-        
-        self.deselect_all()
-
-        # Get the current frame and evaluate the start and end frames of the shot
-        cut_frame_index = self._seek_spinbox.value()  # integer
-        start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(cut_frame_index)  # integers
-        if cut_frame_index <= start_frame_index or cut_frame_index >= end_frame_index - 1:
-            return
-
-        # Insert a new frame in the database
-        shot_index = self._db.add_shot(cut_frame_index)
-
-        # Insert a new shot widget
-        new_shot_widget = ShotWidget(self._video_path, self._fps, cut_frame_index, end_frame_index)
-        new_shot_widget.clicked.connect(self.on_shot_widget_clicked)
-        self._shot_widgets.insert(shot_index, new_shot_widget)
-
-        # Update the end frame of the previous shot widget
-        prev_shot_widget = self._shot_widgets[shot_index - 1]
-        prev_shot_widget.set_end_frame_index(cut_frame_index)
-
-        # Update the grid layout
-        self.update_grid_layout()
-        self.update_status_bar()
-        self.update_window_title()
-
-        self.select_shot_widget(shot_index)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1188,7 +1240,7 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return None
 
-        if self.is_selection_empty():
+        if self._selection_first_index == self._selection_last_index:
             return None
 
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
@@ -1200,26 +1252,76 @@ class ShotBoard(QMainWindow):
         shot_widget_min.set_end_frame_index(end_frame_index)
 
         self.deselect_all()
-
-        widgets_to_remove = self._shot_widgets[shot_index_min + 1 : shot_index_max + 1]  # shot_index_max + 1 is excluded
-        for widget in widgets_to_remove:
-            self._grid_layout.removeWidget(widget)
-            widget.hide()
-            widget.deleteLater()
-        del self._shot_widgets[shot_index_min + 1 : shot_index_max + 1]
-
         del self._db[shot_index_min + 1 : shot_index_max + 1]
         
         # Update the grid layout
         self.update_grid_layout()
-        self.update_status_bar()
-        self.update_window_title()
 
         # Reselect the first shot widget
-        self.select_shot_widget(shot_index_min)
+        self.select_shot_widgets(shot_index_min, shot_index_min)
         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
 
         return shot_widget_min
+
+
+    ##
+    ## UNDO/REDO
+    ##
+
+
+    def restore_selection(self, data):
+        old_first_index = data['first_index']
+        old_last_index = data['last_index']
+        self.select_shot_widgets(old_first_index, old_last_index)
+
+
+    def restore_context(self, data):
+        self.deselect_all()
+        frame_indexes = data['frame_indexes']
+        self._db.set_shots(frame_indexes)
+        self.update_grid_layout()
+        self.restore_selection(data)
+
+
+    @command_selection_context
+    def cmd_select_all(self):
+        self.select_all()
+
+
+    @command_selection_context
+    def cmd_deselect_all(self):
+        self.deselect_all()
+
+
+    @command_selection_context
+    def cmd_select_shot(self, shot_index):
+        self.select_shot_widgets(shot_index, shot_index)
+
+
+    @command_selection_context
+    def cmd_extend_shot_selection(self, shot_index):
+        self.extend_shot_selection(shot_index)
+
+
+    @command_full_context
+    def cmd_split_video(self):
+        return self.split_video(self._seek_spinbox.value())
+
+
+    @command_full_context
+    def cmd_scan_selected_shots(self):
+        if self.is_selection_empty():
+            return None
+        shot_widget = self._shot_widgets[self._selection_first_index] if self._selection_first_index == self._selection_last_index else self.merge_selected_shots()
+        if shot_widget is None:
+            return None
+        self.detect_shots_ssim(shot_widget.get_start_frame_index(), shot_widget.get_end_frame_index())
+        return shot_widget
+
+
+    @command_full_context
+    def cmd_merge_selected_shots(self):
+        return self.merge_selected_shots()
 
 
     ##
@@ -1229,13 +1331,13 @@ class ShotBoard(QMainWindow):
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
     def is_selection_empty(self):
-        return self._selection_index_first == None
+        return self._selection_first_index == None
 
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
     def select_all(self):
-        self._selection_index_first = 0
-        self._selection_index_last = len(self._shot_widgets) - 1
+        self._selection_first_index = 0
+        self._selection_last_index = len(self._shot_widgets) - 1
         for idx, shot_widget in enumerate(self._shot_widgets):
             shot_widget.set_selected(True)
         self.update_ui_state()
@@ -1245,82 +1347,116 @@ class ShotBoard(QMainWindow):
     def deselect_all(self):
         #for idx, shot_widget in enumerate(self._shot_widgets):
         #    shot_widget.set_selected(False)
-        if self._selection_index_first != None:
+        if self._selection_first_index != None:
             idx_min, idx_max = self.get_selection_index_min_max()
             for i in range(idx_min, idx_max + 1):
                 self._shot_widgets[i].set_selected(False)
-        self._selection_index_first = None
-        self._selection_index_last = None
+        self._selection_first_index = None
+        self._selection_last_index = None
         self.update_ui_state()
 
 
-    # @log_function_name(color=PRINT_GRAY_COLOR)
-    def select_shot_widget(self, shot_index):
-        self.deselect_all()
-        self._selection_index_first = shot_index
-        self._selection_index_last = shot_index
-        self._shot_widgets[shot_index].set_selected(True)
+    # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
+    def select_shot_widgets(self, first_index, last_index):
+        if not self._shot_widgets:
+            return
+
+        # If no valid selection range is given, clear selection
+        if first_index is None:
+            assert last_index is None
+            self.deselect_all()
+            return
+
+        # Ensure old selection indexes are valid
+        if self._selection_first_index is None or self._selection_last_index is None:
+            old_index_min, old_index_max = None, None
+        else:
+            old_index_min = min(self._selection_first_index, self._selection_last_index)
+            old_index_max = max(self._selection_first_index, self._selection_last_index)
+
+        new_index_min = min(first_index, last_index)
+        new_index_max = max(first_index, last_index)
+
+        if old_index_min is None:
+            # If there was no previous selection, simply select the new range
+            select_indices = set(range(new_index_min, new_index_max + 1))
+        else:
+            # Deselect the widgets present in old range but not in new range)
+            deselect_indices = set(range(old_index_min, old_index_max + 1)) - set(range(new_index_min, new_index_max + 1))
+            for i in deselect_indices:
+                self._shot_widgets[i].set_selected(False)  # Assume ShotWidget has set_selected(bool)
+
+            # Find the widgets to select (present in new range but not in old range)
+            select_indices = set(range(new_index_min, new_index_max + 1)) - set(range(old_index_min, old_index_max + 1))
+
+        # Select new widgets
+        for i in select_indices:
+            self._shot_widgets[i].set_selected(True)
+
+        # Update selection indexes
+        self._selection_first_index = first_index
+        self._selection_last_index = last_index
         self.update_ui_state()
 
 
-    # @log_function_name(color=PRINT_GRAY_COLOR)
-    def extend_shot_widget_selection(self, shot_index):
+    # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
+    def extend_shot_selection(self, shot_index):
         # If the new index doesn't change the extented selection, do nothing
-        if shot_index == self._selection_index_last:
+        if shot_index == self._selection_last_index:
             return
 
         # If the selection is empty, select from 0 to the new index
-        if self._selection_index_first == None:
-            assert self._selection_index_last == None
+        if self._selection_first_index == None:
+            assert self._selection_last_index == None
             for i in range(0, shot_index + 1):
                 self._shot_widgets[i].set_selected(True)
-            self._selection_index_first = 0
-            self._selection_index_last = shot_index
+            self._selection_first_index = 0
+            self._selection_last_index = shot_index
             self.update_ui_state()
             return
 
         # Else either extend or reduce the selection
-        if self._selection_index_first <= self._selection_index_last:
-            if shot_index < self._selection_index_first:  # extend the selection to the left
-                for i in range(shot_index, self._selection_index_first):
+        if self._selection_first_index <= self._selection_last_index:
+            if shot_index < self._selection_first_index:  # extend the selection to the left
+                for i in range(shot_index, self._selection_first_index):
                     self._shot_widgets[i].set_selected(True)
-                for i in range(self._selection_index_first + 1, self._selection_index_last + 1):
+                for i in range(self._selection_first_index + 1, self._selection_last_index + 1):
                     self._shot_widgets[i].set_selected(False)
-            elif shot_index < self._selection_index_last:  # reduce the selection
-                for i in range(shot_index + 1, self._selection_index_last + 1):
+            elif shot_index < self._selection_last_index:  # reduce the selection
+                for i in range(shot_index + 1, self._selection_last_index + 1):
                     self._shot_widgets[i].set_selected(False)
             else:  # extend the selection to the right
-                for i in range(self._selection_index_last + 1, shot_index + 1):
+                for i in range(self._selection_last_index + 1, shot_index + 1):
                     self._shot_widgets[i].set_selected(True)
         else:  # inverted min and max
-            if shot_index > self._selection_index_first:  # extend the selection to the right
-                for i in range(self._selection_index_last, self._selection_index_first):
+            if shot_index > self._selection_first_index:  # extend the selection to the right
+                for i in range(self._selection_last_index, self._selection_first_index):
                     self._shot_widgets[i].set_selected(False)
-                for i in range(self._selection_index_first + 1, shot_index + 1):
+                for i in range(self._selection_first_index + 1, shot_index + 1):
                     self._shot_widgets[i].set_selected(True)
-            elif shot_index > self._selection_index_last:  # reduce the selection
-                for i in range(self._selection_index_last, shot_index):
+            elif shot_index > self._selection_last_index:  # reduce the selection
+                for i in range(self._selection_last_index, shot_index):
                     self._shot_widgets[i].set_selected(False)
             else:  # extend the selection to the left
-                for i in range(shot_index, self._selection_index_last):
+                for i in range(shot_index, self._selection_last_index):
                     self._shot_widgets[i].set_selected(True)
 
-        self._selection_index_last = shot_index
+        self._selection_last_index = shot_index
         self.update_ui_state()
 
 
     #@log_function_name(color=PRINT_GRAY_COLOR)
     def get_selection_index_min_max(self):
-        if self._selection_index_first == None:
+        if self._selection_first_index == None:
             return None, None
         
-        if self._selection_index_last == None:
-            return self._selection_index_first, None
+        if self._selection_last_index == None:
+            return self._selection_first_index, None
         
-        if self._selection_index_first <= self._selection_index_last:
-            return self._selection_index_first, self._selection_index_last
+        if self._selection_first_index <= self._selection_last_index:
+            return self._selection_first_index, self._selection_last_index
         else:
-            return self._selection_index_last, self._selection_index_first
+            return self._selection_last_index, self._selection_first_index
 
 
     ##
@@ -1328,7 +1464,7 @@ class ShotBoard(QMainWindow):
     ##
 
 
-    #@log_function_name(color=PRINT_GRAY_COLOR)
+    #@log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
     def convert_frame_index_to_qtvid_pos(self, frame_index):
         assert self._fps > 0
         offset = int(frame_index) - 0.5
@@ -1342,7 +1478,7 @@ class ShotBoard(QMainWindow):
         return (qtvid_pos * 0.001 * self._fps) + 1  # returns a frame index as a float value (e.g. 13.5)
 
 
-   #@log_function_name(color=PRINT_GRAY_COLOR)
+   #@log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
     def convert_detection_slider_value_to_ssim_drop_threshold(self, value):
         return (MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD) * (value / DETECTION_SLIDER_STEPS) + MIN_SSIM_DROP_THRESHOLD
 

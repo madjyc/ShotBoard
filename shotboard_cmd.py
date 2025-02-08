@@ -1,4 +1,6 @@
 
+DEBUG_COMMAND_HISTORY = False
+
 class Command:
     def __init__(self):
         self._undo_func = None
@@ -18,19 +20,25 @@ class Command:
 
 
     def undo(self):
-        # assert self._owner, "Error - Undefined undo owner"
+        # assert self._owner, "Error - Undefined owner"
         assert self._undo_func, "Error - Undefined undo fonction"
         self._undo_func(self._undo_data)
 
 
     def redo(self):
-        # assert self._owner, "Error - Undefined undo owner"
+        # assert self._owner, "Error - Undefined owner"
         assert self._redo_func, "Error - Undefined redo fonction"
         self._redo_func(self._redo_data)
 
 
+    def __str__(self):
+        undo_info = self._undo_func.__name__ if self._undo_func else "None"
+        redo_info = self._redo_func.__name__ if self._redo_func else "None"
+        return f"Command(Undo: {undo_info}, Data: {self._undo_data} / Redo: {redo_info}, Data: {self._redo_data})"
+
+
 class CommandHistory():
-    MAX_COMMANDS = 100
+    MAX_COMMANDS = 50
 
     def __init__(self):
         self.clear()
@@ -39,6 +47,8 @@ class CommandHistory():
     def clear(self):
         self._list = []
         self._index = -1
+        if DEBUG_COMMAND_HISTORY:
+            print(self)
 
 
     def push(self, cmd):
@@ -46,25 +56,43 @@ class CommandHistory():
         while len(self._list) >= CommandHistory.MAX_COMMANDS:
             del self._list[0]
             self._index -= 1
-        self._list = self._list[:self._index + 1]
+        self._list = self._list[:self._index + 1]  # Replace all following commands by the new command
         self._list.append(cmd)
-        self.redo()
+        self._index += 1
+        if DEBUG_COMMAND_HISTORY:
+            print(self)
 
 
     def undo(self):
-        print(">>> UNDO <<<")
+        # print(">>> UNDO <<<")
         # Execute the undo method of the current command and move the index back.
         if self._index >= 0:
             self._list[self._index].undo()
             self._index -= 1
+        if DEBUG_COMMAND_HISTORY:
+            print(self)
 
 
     def redo(self):
-        print(">>> REDO <<<")
+        # print(">>> REDO <<<")
         # Increment the index and execute the redo method of the next command.
         if self._index < len(self._list) - 1:
             self._index += 1
             self._list[self._index].redo()
+        if DEBUG_COMMAND_HISTORY:
+            print(self)
+
+
+    def __str__(self):
+        if not self._list:
+            return "CommandHistory: [Empty]"
+
+        commands_str = []
+        for i, cmd in enumerate(self._list):
+            marker = "*" if i == self._index else " "
+            commands_str.append(f"{marker} [{i}] {cmd}")
+
+        return "CommandHistory:\n" + "\n".join(commands_str)
 
 
 # TEST
