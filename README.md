@@ -114,7 +114,7 @@ Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thum
 2. Click **Mark current frame as new shot**. A new shot will be added to the list.
 3. Repeat until all shots are correctly separated.
 
-#### Merging Shots
+### Merging Shots
 1. Select multiple shots using **Shift + Click**.
 2. Click **Merge selected shots**.
 
