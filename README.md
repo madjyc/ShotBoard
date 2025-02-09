@@ -17,36 +17,35 @@ With **ShotBoard**, you can:
 **ShotBoard** offers a seamless way to explore film storytelling.
 
 ![screenshot](./Example/Screencopy.jpg)
-<p>"Video" version of the board</p>
 
+With the "Lines" option checked:
 ![screenshot](./Example/Sobel.jpg)
-<p>"Line drawing" version of the board</p>
 
 ## Installation
 
-### Install ffmpeg
-ffmpeg is required for video processing. Here's how to install it on Windows 10+:
+### Install FFmpeg
+FFmpeg is required for video processing. Here's how to install it on Windows 10+:
 
 *Windows users will find more visual installation instructions [on this page](https://phoenixnap.com/kb/ffmpeg-windows).*
 
-1. **Download ffmpeg**:
-- Go to the [ffmpeg official website](https://ffmpeg.org/download.html).
+1. **Download FFmpeg**:
+- Go to the [FFmpeg official website](https://ffmpeg.org/download.html).
 - Under "**Get packages & executable files**", select a pre-built version for Windows.
 - Download the ZIP file for your system (e.g. ffmpeg-release-essentials.zip).
 
-2. **Extract the ffmpeg files**:
+2. **Extract the FFmpeg files**:
 - Extract the ZIP file contents to a folder of your choice (e.g. C:\ffmpeg).
 
-3. **Add ffmpeg to the PATH environment variable**:
+3. **Add FFmpeg to the PATH environment variable**:
 - Open the <kbd>Start</kbd> menu, search for "**Environment Variables**", and select "**Edit the system environment variables**".
 - In the "**System Properties**" window, click <kbd>Environment Variables</kbd>.
 - Under **System variables**, find the **PATH** variable and click <kbd>Edit</kbd>.
-- Click <kbd>New</kbd>, then enter the `bin` folder path where ffmpeg is located (e.g. C:\ffmpeg\bin).
+- Click <kbd>New</kbd>, then enter the `bin` folder path where ffmpeg.exe and ffprobe.exe are located (e.g. C:\ffmpeg\bin).
 - Click <kbd>OK</kbd> to save your changes.
 
 4. **Test the installation**:
 - Open Command Prompt and type `ffmpeg --version`.
-- If ffmpeg is installed correctly, you’ll see version information displayed.
+- If FFmpeg is installed correctly, you’ll see version information displayed.
 
 ### Install Python 3.10.6
 Ensure **Python 3.10.6** is installed on your system (although it might work on newer versions as well).
@@ -119,7 +118,14 @@ Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thum
 1. Select multiple shots using **Shift + Click**.
 2. Click **Merge selected shots**.
 
+### Exporting Shots to a MP4 file
+1. Select one or multiple shots.
+2. Click on **File > Export** or **File > Export as**.
+**File > Export**: ShotBoard will save the excerpt using an automated convention (i.e. the original video filename plus a timecode to indicate the starting position) at the original video location.
+**File > Export As**: Manually choose the save location and filename.
+
 ## Tips
+- Raise or lower the horizontal splitter to give more room to the video or the board.
 Although ShotBoard will successfully detect most of the shots, it may struggle when:
 - Transitions are blurry (e.g. fading to white or black, crossfading, strong motion blur)
 - The lighting is stroboscopic (e.g. lightning, flashing lights)

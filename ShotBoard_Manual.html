@@ -27,26 +27,29 @@
     <p><strong>ShotBoard</strong> offers a seamless way to explore film storytelling.</p>
     
     <img src="./Example/Screencopy.jpg" alt="Screenshot">
-    
+
+    <p>With the "Lines" option checked:</p>
+    <img src="./Example/Sobel.jpg" alt="Sobel">
+
     <h2>Installation</h2>
 
-    <h3>Install ffmpeg</h3>
-    <p>ffmpeg is required for video processing. Here's how to install it on Windows 10+:</p>
+    <h3>Install FFmpeg</h3>
+    <p>FFmpeg is required for video processing. Here's how to install it on Windows 10+:</p>
     <ol>
-        <li><strong>Download ffmpeg</strong>: <br>
-            - Go to the <a href="https://ffmpeg.org/download.html">ffmpeg official website</a>.<br>
+        <li><strong>Download FFmpeg</strong>: <br>
+            - Go to the <a href="https://ffmpeg.org/download.html">FFmpeg official website</a>.<br>
             - Under "<strong>Get packages & executable files</strong>", select a pre-built version for Windows.<br>
             - Download the ZIP file for your system (e.g. ffmpeg-release-essentials.zip).</li>
-        <li><strong>Extract the ffmpeg files</strong>:<br>
+        <li><strong>Extract the FFmpeg files</strong>:<br>
             - Extract the ZIP file contents to a folder of your choice (e.g. <code>C:\ffmpeg</code>).</li>
-        <li><strong>Add ffmpeg to the PATH environment variable</strong>:<br>
+        <li><strong>Add FFmpeg to the PATH environment variable</strong>:<br>
             - Open the <kbd>Start</kbd> menu, search for "Environment Variables", and select "Edit the system environment variables".<br>
             - In the "System Properties" window, click <kbd>Environment Variables</kbd>.<br>
             - Under <strong>System variables</strong>, find the <strong>PATH</strong> variable and click <kbd>Edit</kbd>.<br>
-            - Click <kbd>New</kbd>, then enter the <code>bin</code> folder path where ffmpeg is located (e.g. <code>C:\ffmpeg\bin</code>).</li>
+            - Click <kbd>New</kbd>, then enter the <code>bin</code> folder path where ffmpeg.exe and ffprobe.exe are located (e.g. <code>C:\ffmpeg\bin</code>).</li>
         <li><strong>Test the installation</strong>:<br>
             - Open Command Prompt and type: <code>ffmpeg --version</code>.<br>
-            - If ffmpeg is installed correctly, you’ll see version information displayed.</li>
+            - If FFmpeg is installed correctly, you’ll see version information displayed.</li>
     </ol>
     
     <h3>Install Python 3.10.6</h3>
@@ -130,7 +133,18 @@
         <li>Click <kbd>Merge selected shots</kbd>.</li>
     </ol>
 
+    <h3>Exporting Shots to a MP4 file</h3>
+    <ol>
+        <li>Select one or multiple shots.</li>
+        <li>Click on <strong>File > Export</strong> or <strong>File > Export as</strong>.</li>
+    </ol>
+    <p><strong>File > Export</strong>: ShotBoard will save the excerpt using an automated convention (i.e. the original video filename plus a timecode to indicate the starting position).</p>
+    <p><strong>File > Export As</strong>: Manually choose the save location and filename.</p>
+    
     <h3>Tips</h3>
+    <ul>
+        <li>Raise or lower the horizontal splitter to give more room to the video or the board.</li>
+    </ul>
     <p>Although ShotBoard will successfully detect most of the shots, it may struggle when:</p>
     <ul>
         <li>Transitions are blurry (e.g. fading to white or black, crossfading, strong motion blur)</li>
