@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -216,9 +216,9 @@ class ShotBoard(QMainWindow):
 
 
     ##
-    ## MENU, MAIN WIDGETS
+    ## MENU, STATUS BAR
     ##
-    
+
 
     @log_function_name()
     def create_status_bar(self):
@@ -243,35 +243,50 @@ class ShotBoard(QMainWindow):
 
         # Create 'New' action
         action = QAction('New', self)
-        action.setShortcut(QKeySequence.New)
         action.triggered.connect(self.on_menu_new)
+        action.setShortcut(QKeySequence.New)
         file_menu.addAction(action)
 
         file_menu.addSeparator()
 
         # Create 'Open' action
         action = QAction('Open Video', self)
-        action.setShortcut(QKeySequence.Open)
         action.triggered.connect(self.on_menu_open_video)
+        action.setShortcut(QKeySequence.Open)
         file_menu.addAction(action)
 
         # Create 'Open' action
         action = QAction('Open Shot List', self)
         action.triggered.connect(self.on_menu_open_shotlist)
+        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.Key_O))
         file_menu.addAction(action)
 
         file_menu.addSeparator()
 
         # Create 'Save' action
         action = QAction('Save', self)
-        action.setShortcut(QKeySequence.Save)
         action.triggered.connect(self.on_menu_save)
+        action.setShortcut(QKeySequence.Save)
         file_menu.addAction(action)
 
         # Create 'Save As' action
         action = QAction('Save as', self)
-        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.Key_S))
         action.triggered.connect(self.on_menu_save_as)
+        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.Key_S))
+        file_menu.addAction(action)
+
+        file_menu.addSeparator()
+
+        # Create 'Export' action
+        action = QAction('Export', self)
+        action.triggered.connect(self.on_menu_export)
+        action.setShortcut(QKeySequence(Qt.CTRL + Qt.Key_E))
+        file_menu.addAction(action)
+
+        # Create 'Export As' action
+        action = QAction('Export as', self)
+        action.triggered.connect(self.on_menu_export_as)
+        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.Key_E))
         file_menu.addAction(action)
 
         file_menu.addSeparator()
@@ -279,6 +294,7 @@ class ShotBoard(QMainWindow):
         # Create 'Exit' action
         action = QAction('Exit', self)
         action.triggered.connect(self.on_menu_exit)
+        action.setShortcut(QKeySequence(Qt.CTRL + Qt.Key_Q))
         file_menu.addAction(action)
 
         #
@@ -288,15 +304,15 @@ class ShotBoard(QMainWindow):
         
         # Create an "Undo" action with Ctrl + Z shortcut
         action = QAction("Undo", self)
-        action.setShortcuts([QKeySequence.Undo])  # QKeySequence("Ctrl+Z")
         action.triggered.connect(self._history.undo)
+        action.setShortcuts([QKeySequence.Undo])  # QKeySequence("Ctrl+Z")
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Redo", self)
-        action.setShortcuts([QKeySequence.Redo])  # QKeySequence("Ctrl+Y"), QKeySequence("Shift+Ctrl+Z")
         action.triggered.connect(self._history.redo)
+        action.setShortcuts([QKeySequence.Redo])  # QKeySequence("Ctrl+Y"), QKeySequence("Shift+Ctrl+Z")
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
@@ -304,18 +320,23 @@ class ShotBoard(QMainWindow):
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Select All", self)
-        action.setShortcuts([QKeySequence.SelectAll])  # Ctrl+A
         action.triggered.connect(self.cmd_select_all)
+        action.setShortcuts([QKeySequence.SelectAll])  # Ctrl+A
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
         # Create an "Redo" action with Ctrl + Z shortcut
         action = QAction("Deselect All", self)
-        action.setShortcuts([QKeySequence("Ctrl+D")])
         action.triggered.connect(self.cmd_deselect_all)
+        action.setShortcuts([QKeySequence("Ctrl+D")])
         edit_menu.addAction(action)
         #action.setDisabled(True)
 
+
+    ##
+    ## MAIN WIDGETS
+    ##
+    
 
     @log_function_name()
     def create_top_widget(self):
@@ -574,6 +595,16 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_menu_export_as(self):
+        self.export_selection(True)
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_menu_export(self):
+        self.export_selection(False)
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_exit(self):
         reply = QMessageBox.question(self, 'Confirm Exit', 'Exit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
@@ -778,8 +809,8 @@ class ShotBoard(QMainWindow):
     @log_function_name()
     def update_window_title(self):
         title = DEFAULT_TITLE
-        if self._video_path:
-            title += f" - {self._video_path}"
+        if self._db_filename:
+            title += f" - {self._db_filename}"
         else:
             title += " - (undefined)"
     
@@ -1103,13 +1134,13 @@ class ShotBoard(QMainWindow):
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        start_frame_time = int(start_frame_index) / self._fps  # frame position in seconds
+        start_pos = int(start_frame_index) / self._fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_command = [
             "ffmpeg",
             #"-loglevel", "debug",
-            "-ss", str(start_frame_time),  # Fast seek FIRST
+            "-ss", str(start_pos),  # Fast seek FIRST
             "-i", self._video_path,  # Input file AFTER
             "-vframes", str(end_frame_index - start_frame_index),
             "-vf", f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}, format=gray",  # Scale and convert to grayscale
@@ -1262,6 +1293,53 @@ class ShotBoard(QMainWindow):
         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
 
         return shot_widget_min
+
+
+    def export_selection(self, ask_for_path):
+        if not self._video_path:
+            QMessageBox.warning(self, "Export Error", "Please load a video first.")
+            return
+
+        if self._selection_first_index is None or self._selection_last_index is None:
+            QMessageBox.warning(self, "Export Error", "Please select shots first.")
+            return
+
+        # Calculate start time in seconds
+        start_shot_widget = self._shot_widgets[self._selection_first_index]
+        start_frame_index = start_shot_widget.get_start_frame_index()
+
+        end_shot_widget = self._shot_widgets[self._selection_last_index]
+        end_frame_index = end_shot_widget.get_end_frame_index()
+
+        start_pos = start_frame_index / self._fps
+
+        if ask_for_path:
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Export Video", "", "MP4 Files (*.mp4);;All Files (*)"
+            )
+            if not save_path:
+                return
+        else:
+            save_path = self.make_export_path(start_pos)
+
+        # Build the ffmpeg command
+        cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite without asking
+            "-i", self._video_path,  # Input file first
+            "-c:v", "libx264",  # Re-encode video to ensure precision
+            "-preset", "ultrafast",  # Minimize encoding overhead
+            "-ss", str(start_pos),  # Apply seeking **after** input for accuracy
+            "-vframes", str(end_frame_index - start_frame_index),  # Extract exact frame count
+            save_path  # Output file
+        ]
+
+        # Run the FFmpeg command
+        try:
+            subprocess.run(cmd, check=True)
+            print(f"Export successful: {save_path}")
+        except subprocess.CalledProcessError as e:
+            print(f"Export failed: {e}")
 
 
     ##
@@ -1460,27 +1538,47 @@ class ShotBoard(QMainWindow):
 
 
     ##
-    ## HELPER
+    ## HELPERS
     ##
 
 
-    #@log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
     def convert_frame_index_to_qtvid_pos(self, frame_index):
         assert self._fps > 0
         offset = int(frame_index) - 0.5
         return offset * 1000 / self._fps if offset > 0 else 0  # returns mid-frame position in milliseconds
 
 
-    #@log_function_name(color=PRINT_GRAY_COLOR)
     def qtvid_pos_to_frame_index(self):
         assert self._fps > 0
         qtvid_pos = self._media_player.position()
         return (qtvid_pos * 0.001 * self._fps) + 1  # returns a frame index as a float value (e.g. 13.5)
 
 
-   #@log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
     def convert_detection_slider_value_to_ssim_drop_threshold(self, value):
         return (MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD) * (value / DETECTION_SLIDER_STEPS) + MIN_SSIM_DROP_THRESHOLD
+
+
+    def make_export_path(self, start_pos):
+        # Extract filename and remove extension
+        filename, _ = os.path.splitext(os.path.basename(self._video_path))  # Split the extension
+        title = filename.replace(" ", "")  # Remove spaces
+        formatted_timecode = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}"
+
+        # Split title and year, assuming the format "Title (Year)"
+        if "(" in title and title.endswith(")"):
+            title, year = title.rsplit("(", 1)
+            year = year[:-1]  # Remove closing ')'
+            save_path = os.path.join(
+                os.path.dirname(self._video_path),
+                f"{title}_{year}_{formatted_timecode}.mp4"
+            )
+        else:
+            save_path = os.path.join(
+                os.path.dirname(self._video_path),
+                f"{title}_{formatted_timecode}.mp4"
+            )
+
+        return save_path
 
 
     ##

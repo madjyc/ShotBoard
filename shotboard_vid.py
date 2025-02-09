@@ -76,7 +76,7 @@ class AudioPlayer(QThread):
             try:
                 audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
                 if not audio_bytes:
-                    raise RuntimeError("Error: No audio data received from ffmpeg.")
+                    raise RuntimeError("Error: No audio data received from FFmpeg.")
             except (OSError, ValueError) as e:
                 print(f"Error reading audio data: {e}")
                 audio_bytes = None

@@ -162,11 +162,11 @@ class ShotWidget(QFrame):
             print(f"Error: File {self._video_path} does not exist.")
             return
 
-        # Use ffmpeg to extract the frame
+        # Use FFmpeg to extract the frame
         assert self._fps > 0
-        start_pos = self._start_frame_index / self._fps  # no offset for ffmpeg
+        start_pos = self._start_frame_index / self._fps  # no offset for FFmpeg
         if ShotWidget.detect_edges:
-            command = (
+            cmd = (
                 ffmpeg
                 .input(self._video_path, ss=start_pos)
                 .filter('format', 'gray')  # Convert to grayscale
@@ -179,16 +179,16 @@ class ShotWidget(QFrame):
                 .compile()
             )
         else:
-            command = (
+            cmd = (
                 ffmpeg
                 .input(self._video_path, ss=start_pos)
                 .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
                 .compile()
             )
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = process.communicate()
         if process.returncode != 0:
-            print("Error: Cannot extract frame with ffmpeg.")
+            print("Error: Cannot extract frame with FFmpeg.")
             print(err.decode())
             return
 
