@@ -112,7 +112,7 @@ class ShotWidget(QFrame):
         return self._end_frame_index
 
 
-    def set_end_frame_index(self, end_frame_index, reset_thumbnail=True):
+    def set_end_frame_index(self, end_frame_index, reset_thumbnail):
         assert end_frame_index > self._start_frame_index
         self._end_frame_index = end_frame_index
         self._frame_progress_bar.setMaximum(end_frame_index - 1)

@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.6.3"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -518,6 +518,7 @@ class ShotBoard(QMainWindow):
         self._scroll_area.setStatusTip("Click on a shot to play.")
         self._scroll_area.setStyleSheet(f"background-color: {BOARD_BACKGROUND_COLOR};")
         self._scroll_area.clicked.connect(self.cmd_deselect_all)
+        self._scroll_area.verticalScrollBar().valueChanged.connect(self.on_scroll)
         scrollarea_layout.addWidget(self._scroll_area)
 
         # Create a container widget to hold the grid layout
@@ -769,6 +770,19 @@ class ShotBoard(QMainWindow):
         print(f"{PRINT_RED_COLOR}{self._media_player.errorString()}{PRINT_DEFAULT_COLOR}")
 
 
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_scroll(self):
+        """Detect which ShotWidgets are visible in the scroll area."""
+        viewport = self._scroll_area.viewport()
+        scroll_pos = self._scroll_area.verticalScrollBar().value()
+        viewport_rect = QRect(0, scroll_pos, viewport.width(), viewport.height())
+
+        visible_shot_widgets = []
+        for shot_widget in self._shot_widgets:
+            if viewport_rect.intersects(shot_widget.geometry()):
+                visible_shot_widgets.append(shot_widget)
+
+
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
         if self._update_timer.isActive():
@@ -888,7 +902,7 @@ class ShotBoard(QMainWindow):
 
         if widget_index > 0:
             prev_widget = self._shot_widgets[widget_index - 1]
-            prev_widget.set_end_frame_index(start_frame_index)
+            prev_widget.set_end_frame_index(start_frame_index, False)
 
         return shot_widget
 
@@ -900,9 +914,9 @@ class ShotBoard(QMainWindow):
             prev_shot_widget = self._shot_widgets[widget_index - 1]
             if widget_index < len(self._shot_widgets):
                 next_shot_widget = self._shot_widgets[widget_index]
-                prev_shot_widget.set_end_frame_index(next_shot_widget.get_start_frame_index())
+                prev_shot_widget.set_end_frame_index(next_shot_widget.get_start_frame_index(), False)
             else:
-                prev_shot_widget.set_end_frame_index(self._frame_count)
+                prev_shot_widget.set_end_frame_index(self._frame_count, False)
 
 
     @log_function_name()
@@ -1031,6 +1045,7 @@ class ShotBoard(QMainWindow):
 
         self.select_shot_widgets(0, 0)
         self.update_ui_state()
+        self.on_scroll()
 
 
     def open_shot_list(self, json_path):
@@ -1303,7 +1318,7 @@ class ShotBoard(QMainWindow):
         start_frame_index = shot_widget_min.get_start_frame_index()
         end_frame_index = shot_widget_max.get_end_frame_index()
 
-        shot_widget_min.set_end_frame_index(end_frame_index)
+        shot_widget_min.set_end_frame_index(end_frame_index, True)
 
         self.deselect_all()
         del self._db[shot_index_min + 1 : shot_index_max + 1]
