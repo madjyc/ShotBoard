@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.3"
+APP_VERSION = "0.6.4"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -1313,10 +1313,8 @@ class ShotBoard(QMainWindow):
             return None
 
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
-        shot_widget_min = self._shot_widgets[shot_index_min]
-        shot_widget_max = self._shot_widgets[shot_index_max]
-        start_frame_index = shot_widget_min.get_start_frame_index()
-        end_frame_index = shot_widget_max.get_end_frame_index()
+        shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
+        start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
         shot_widget_min.set_end_frame_index(end_frame_index, True)
 
@@ -1343,11 +1341,9 @@ class ShotBoard(QMainWindow):
             return
 
         # Calculate start time in seconds
-        start_shot_widget = self._shot_widgets[self._selection_first_index]
-        start_frame_index = start_shot_widget.get_start_frame_index()
-
-        end_shot_widget = self._shot_widgets[self._selection_last_index]
-        end_frame_index = end_shot_widget.get_end_frame_index()
+        shot_index_min, shot_index_max = self.get_selection_index_min_max()
+        shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
+        start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
         start_pos = start_frame_index / self._fps
 
@@ -1472,11 +1468,9 @@ class ShotBoard(QMainWindow):
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
     def deselect_all(self):
-        #for idx, shot_widget in enumerate(self._shot_widgets):
-        #    shot_widget.set_selected(False)
         if self._selection_first_index != None:
-            idx_min, idx_max = self.get_selection_index_min_max()
-            for i in range(idx_min, idx_max + 1):
+            shot_index_min, shot_index_max = self.get_selection_index_min_max()
+            for i in range(shot_index_min, shot_index_max + 1):
                 self._shot_widgets[i].set_selected(False)
         self._selection_first_index = None
         self._selection_last_index = None
@@ -1501,8 +1495,7 @@ class ShotBoard(QMainWindow):
             old_index_min = min(self._selection_first_index, self._selection_last_index)
             old_index_max = max(self._selection_first_index, self._selection_last_index)
 
-        new_index_min = min(first_index, last_index)
-        new_index_max = max(first_index, last_index)
+        new_index_min, new_index_max = min(first_index, last_index), max(first_index, last_index)
 
         if old_index_min is None:
             # If there was no previous selection, simply select the new range
@@ -1572,18 +1565,11 @@ class ShotBoard(QMainWindow):
         self.update_ui_state()
 
 
-    #@log_function_name(color=PRINT_GRAY_COLOR)
     def get_selection_index_min_max(self):
-        if self._selection_first_index == None:
+        if self._selection_first_index is None or self._selection_last_index is None:
             return None, None
         
-        if self._selection_last_index == None:
-            return self._selection_first_index, None
-        
-        if self._selection_first_index <= self._selection_last_index:
-            return self._selection_first_index, self._selection_last_index
-        else:
-            return self._selection_last_index, self._selection_first_index
+        return min(self._selection_first_index, self._selection_last_index), max(self._selection_first_index, self._selection_last_index)
 
 
     ##
