@@ -24,7 +24,7 @@ import sys
 import datetime
 from functools import wraps
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTimer, QTime, QElapsedTimer
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QShortcut, QMessageBox, QFileDialog, QProgressDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QShortcut, QMessageBox, QDialog, QFileDialog, QProgressDialog
 from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
 from PyQt5.QtWidgets import QLabel, QPushButton, QToolButton, QCheckBox
 from PyQt5.QtWidgets import QAction, QStyle
@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.4"
+APP_VERSION = "0.6.5"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -1323,6 +1323,7 @@ class ShotBoard(QMainWindow):
         
         # Update the grid layout
         self.update_grid_layout()
+        shot_widget_min.initialise_thumbnail()
 
         # Reselect the first shot widget
         self.select_shot_widgets(shot_index_min, shot_index_min)
@@ -1359,6 +1360,16 @@ class ShotBoard(QMainWindow):
         if os.path.exists(save_path) and not QMessageBox.question(self, 'File Exists', f"The file {save_path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
            return
 
+        # Show a simple modal dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Exporting...")
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Please wait while the shot selection is exported..."))
+        dialog.setLayout(layout)
+        dialog.show()
+        QApplication.processEvents()  # Keep UI responsive
+
         # Build the ffmpeg command
         ffmpeg_cmd = [
             "ffmpeg",
@@ -1386,6 +1397,9 @@ class ShotBoard(QMainWindow):
             QMessageBox.warning(self, "Export Error", error_message)
             print(error_message)
 
+        # Close the dialog automatically when finished
+        dialog.close()
+
 
     ##
     ## UNDO/REDO
@@ -1407,12 +1421,12 @@ class ShotBoard(QMainWindow):
 
 
     @command_selection_context
-    def cmd_select_all(self):
+    def cmd_select_all(self, _):
         self.select_all()
 
 
     @command_selection_context
-    def cmd_deselect_all(self):
+    def cmd_deselect_all(self, _):
         self.deselect_all()
 
 
