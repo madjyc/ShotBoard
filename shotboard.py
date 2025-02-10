@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.2"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -63,6 +63,9 @@ PRINT_RED_COLOR = '\033[91m'  # red
 PRINT_GREEN_COLOR = '\033[92m'  # green
 PRINT_YELLOW_COLOR  = '\033[93m'  # yellow
 PRINT_CYAN_COLOR = '\033[96m'  # cyan
+
+# Auto-save
+RCLICK_SAVE = True
 
 
 ##
@@ -576,6 +579,8 @@ class ShotBoard(QMainWindow):
     def on_menu_save(self):
         if self._db_filename:
             self._db.save_to_json(self._db_filename)
+            message = f"File saved successfully: {self._db_filename}"
+            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
         else:
             self.on_menu_save_as()
         self.update_window_title()
@@ -591,6 +596,8 @@ class ShotBoard(QMainWindow):
             self._db.save_to_json(filename)
             self._db_filename = filename
             # self.push_filename_to_recent(filename)  # update 'Open Recent' menu.
+            message = f"File saved successfully: {self._db_filename}"
+            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
             self.update_window_title()
 
 
@@ -619,7 +626,13 @@ class ShotBoard(QMainWindow):
 
     #@log_function_name(has_params=True)
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.KeyPress:
+        if event.type() == QEvent.MouseButtonPress:
+            if event.button() == Qt.RightButton:
+                if RCLICK_SAVE:
+                    self.on_menu_save()
+                    return True
+        
+        elif event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Space:
                 self._play_button.click()
                 return True
@@ -810,7 +823,7 @@ class ShotBoard(QMainWindow):
     def update_window_title(self):
         title = DEFAULT_TITLE
         if self._db_filename:
-            title += f" - {self._db_filename}"
+            title += f" - {os.path.basename(self._db_filename)}"
         else:
             title += " - (undefined)"
     
@@ -925,20 +938,30 @@ class ShotBoard(QMainWindow):
 
                 if progress_dialog:
                     progress_dialog.setValue(j)
+                    if progress_dialog.wasCanceled():
+                        progress_dialog.close()
+                        progress_dialog = None
+                        break
 
             # If any widget remain in _shot_widgets, remove them
-            while i < len(self._shot_widgets):
-                self.delete_shot_widget(i)
+            if not progress_dialog or not progress_dialog.wasCanceled():
+                while i < len(self._shot_widgets):
+                    self.delete_shot_widget(i)
 
-            # If any shot remain in _db, add them at the end
-            while j < len(self._db):
-                self.create_shot_widget(len(self._shot_widgets), self._db[j])
-                j += 1
-                if progress_dialog:
-                    progress_dialog.setValue(j)
+                # If any shot remain in _db, add them at the end
+                while j < len(self._db):
+                    self.create_shot_widget(len(self._shot_widgets), self._db[j])
+                    j += 1
+                    if progress_dialog:
+                        progress_dialog.setValue(j)
+                        if progress_dialog.wasCanceled():
+                            progress_dialog.close()
+                            progress_dialog = None
+                            break
 
             if progress_dialog:
                 progress_dialog.close()
+                progress_dialog = None
 
         # Update grid layout
         left_margin, top_margin, right_margin, bottom_margin = self._grid_layout.getContentsMargins()
@@ -1137,7 +1160,7 @@ class ShotBoard(QMainWindow):
         start_pos = int(start_frame_index) / self._fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
-        ffmpeg_command = [
+        ffmpeg_cmd = [
             "ffmpeg",
             #"-loglevel", "debug",
             "-ss", str(start_pos),  # Fast seek FIRST
@@ -1150,7 +1173,7 @@ class ShotBoard(QMainWindow):
             "-nostdin",
             "-"
         ]
-        process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Create a progress dialog
         progress_dialog = QProgressDialog("Detecting shots... (time remaining: --:--:--)", "Cancel", start_frame_index, end_frame_index, self)
@@ -1322,24 +1345,35 @@ class ShotBoard(QMainWindow):
         else:
             save_path = self.make_export_path(start_pos)
 
+        if os.path.exists(save_path) and not QMessageBox.question(self, 'File Exists', f"The file {save_path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+           return
+
         # Build the ffmpeg command
-        cmd = [
+        ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # Overwrite without asking
-            "-i", self._video_path,  # Input file first
-            "-c:v", "libx264",  # Re-encode video to ensure precision
-            "-preset", "ultrafast",  # Minimize encoding overhead
             "-ss", str(start_pos),  # Apply seeking **after** input for accuracy
+            "-i", self._video_path,  # Input file first
+            # "-c", "copy",  # Copy streams instead of re-encoding
+            "-c:v", "libx264",  # Re-encode video to ensure precision
+            # "-preset", "ultrafast",  # Minimize encoding overhead
+            "-preset", "veryfast",  # Good balance of speed and quality
+            "-crf", "18",  # High quality (lower CRF = better quality)
+            "-tune", "film",  # Optimize for natural videos
             "-vframes", str(end_frame_index - start_frame_index),  # Extract exact frame count
             save_path  # Output file
         ]
 
         # Run the FFmpeg command
         try:
-            subprocess.run(cmd, check=True)
-            print(f"Export successful: {save_path}")
+            subprocess.run(ffmpeg_cmd, check=True)
+            message = f"Export successful: {save_path}"
+            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
         except subprocess.CalledProcessError as e:
-            print(f"Export failed: {e}")
+            error_message = f"Export failed: {e}"
+            self._status_bar.showMessage(error_message, 5000)
+            QMessageBox.warning(self, "Export Error", error_message)
+            print(error_message)
 
 
     ##
@@ -1568,16 +1602,16 @@ class ShotBoard(QMainWindow):
         if "(" in title and title.endswith(")"):
             title, year = title.rsplit("(", 1)
             year = year[:-1]  # Remove closing ')'
-            save_path = os.path.join(
-                os.path.dirname(self._video_path),
-                f"{title}_{year}_{formatted_timecode}.mp4"
-            )
+            filename = f"{title}_{year}_{formatted_timecode}.mp4"
         else:
-            save_path = os.path.join(
-                os.path.dirname(self._video_path),
-                f"{title}_{formatted_timecode}.mp4"
-            )
+            filename = f"{title}_{formatted_timecode}.mp4"
 
+        # Create "Export" subdirectory
+        export_dir = os.path.join(os.path.dirname(self._video_path), "Export")
+        os.makedirs(export_dir, exist_ok=True)  # Ensure it exists
+
+        # Full export path
+        save_path = os.path.join(export_dir, filename)
         return save_path
 
 

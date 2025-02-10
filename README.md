@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.6.0-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.6.2-blue.svg)
 
-# ShotBoard v0.6.0
+# ShotBoard v0.6.2
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -93,7 +93,7 @@ To detect all shots in the video:
 Tip: To display a detection graph in realtime, unable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.
 
 ### Saving and Opening Shot Lists
-- To save detected shots for later, click on **File > Save** or **File > Save As**.
+- To save detected shots for later, click on **File > Save** or **File > Save As**. Or simply right click (a quicker and convenient way to save).
 - To load a previously saved shot list, click on **File > Open Shot List**.
 
 ### Visualizing Shots
