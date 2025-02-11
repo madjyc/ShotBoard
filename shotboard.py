@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.5"
+APP_VERSION = "0.6.6"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -156,7 +156,7 @@ class ShotBoard(QMainWindow):
         super().__init__()
 
         self._db = ShotBoardDb()
-        self._db_filename = None
+        self._db_path = None
         self._history = CommandHistory()
         self._shot_widgets = []
         self._selection_first_index = None
@@ -167,6 +167,7 @@ class ShotBoard(QMainWindow):
         self._frame_width = 0
         self._frame_height = 0
         self._duration = 0
+        self._ui_enabled = True
 
         self.update_window_title()
         self.setGeometry(geom)
@@ -578,10 +579,8 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_save(self):
-        if self._db_filename:
-            self._db.save_to_json(self._db_filename)
-            message = f"File saved successfully: {self._db_filename}"
-            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
+        if self._db_path:
+            self.save_shot_list(self._db_path)
         else:
             self.on_menu_save_as()
         self.update_window_title()
@@ -590,16 +589,11 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_save_as(self):
         options = QFileDialog.Options()
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Shot File", self._db_filename, "Shot Files (*.json);;All Files (*)", options=options)
-        if filename:
-            #if os.path.exists(filename) and not QMessageBox.question(self, 'File Exists', f"The file {filename} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+        path, _ = QFileDialog.getSaveFileName(self, "Save Shot File", self._db_path, "Shot Files (*.json);;All Files (*)", options=options)
+        if path:
+            #if os.path.exists(path) and not QMessageBox.question(self, 'File Exists', f"The file {path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
             #    return
-            self._db.save_to_json(filename)
-            self._db_filename = filename
-            # self.push_filename_to_recent(filename)  # update 'Open Recent' menu.
-            message = f"File saved successfully: {self._db_filename}"
-            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
-            self.update_window_title()
+            self.save_shot_list(path)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -627,35 +621,36 @@ class ShotBoard(QMainWindow):
 
     #@log_function_name(has_params=True)
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.MouseButtonPress:
-            if event.button() == Qt.RightButton:
-                if RCLICK_SAVE:
-                    self.on_menu_save()
+        if self._ui_enabled:
+            if event.type() == QEvent.MouseButtonPress:
+                if event.button() == Qt.RightButton:
+                    if RCLICK_SAVE:
+                        self.on_menu_save()
+                        return True
+            
+            elif event.type() == QEvent.KeyPress:
+                if event.key() == Qt.Key_Space:
+                    self._play_button.click()  # Play / pause
                     return True
-        
-        elif event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Space:
-                self._play_button.click()
-                return True
 
-            modifiers = event.modifiers()
-            if modifiers & Qt.ShiftModifier:
-                frame_inc = 4  # 4 frames
-            elif modifiers & Qt.ControlModifier:
-                frame_inc = self._fps  # 1 second
-            elif modifiers & Qt.AltModifier:
-                frame_inc = 4 * self._fps  # 4 seconds
-            else:
-                frame_inc = 1
+                modifiers = event.modifiers()
+                if modifiers & Qt.ShiftModifier:
+                    frame_inc = 4  # 4 frames
+                elif modifiers & Qt.ControlModifier:
+                    frame_inc = self._fps  # 1 second
+                elif modifiers & Qt.AltModifier:
+                    frame_inc = 4 * self._fps  # 4 seconds
+                else:
+                    frame_inc = 1
 
-            frame_index = self.qtvid_pos_to_frame_index()
+                frame_index = self.qtvid_pos_to_frame_index()
 
-            if event.key() == Qt.Key_Right:
-                self.set_qtvid_pos_to_mid_frame(frame_index + frame_inc)
-                return True
-            elif event.key() == Qt.Key_Left:
-                self.set_qtvid_pos_to_mid_frame(frame_index - frame_inc)
-                return True
+                if event.key() == Qt.Key_Right:
+                    self.set_qtvid_pos_to_mid_frame(frame_index + frame_inc)
+                    return True
+                elif event.key() == Qt.Key_Left:
+                    self.set_qtvid_pos_to_mid_frame(frame_index - frame_inc)
+                    return True
 
         # Unprocessed events propagate as usual
         return super().eventFilter(obj, event)
@@ -663,12 +658,12 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_handle_splitter_moved(self, pos, index):
-        self.update_grid_layout()
+        pass
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_video_widget_clicked(self):
-        if not self._video_path:
+        if not self._video_path or not self._ui_enabled:
             return
         self.on_play_button_clicked()
 
@@ -777,14 +772,17 @@ class ShotBoard(QMainWindow):
         scroll_pos = self._scroll_area.verticalScrollBar().value()
         viewport_rect = QRect(0, scroll_pos, viewport.width(), viewport.height())
 
-        visible_shot_widgets = []
-        for shot_widget in self._shot_widgets:
-            if viewport_rect.intersects(shot_widget.geometry()):
-                visible_shot_widgets.append(shot_widget)
+        # visible_shot_widgets = []
+        # for shot_widget in self._shot_widgets:
+        #     if viewport_rect.intersects(shot_widget.geometry()):
+        #         visible_shot_widgets.append(shot_widget)
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
+        if not self._ui_enabled:
+            return
+        
         if self._update_timer.isActive():
             self._update_timer.stop()
         self._media_player.pause()
@@ -794,10 +792,9 @@ class ShotBoard(QMainWindow):
         assert shot_widget
         shot_index = self._shot_widgets.index(shot_widget)
 
-        if shift_pressed:  # Extends or reduce the selection
-            #self.extend_shot_selection(shot_index)
+        if shift_pressed:
             self.cmd_extend_shot_selection(shot_index)
-        else:  # Select one shot
+        else:
             self.cmd_select_shot(shot_index)
 
         start_frame_index = shot_widget.get_start_frame_index()  # integer
@@ -815,6 +812,21 @@ class ShotBoard(QMainWindow):
     ##
     ## UPDATES
     ##
+
+
+    @log_function_name()
+    def update_window_title(self):
+        title = DEFAULT_TITLE
+        if self._db_path:
+            title += f" - {os.path.basename(self._db_path)}"
+        else:
+            title += " - (undefined)"
+    
+        # Add '*' if database has unsaved changes
+        if self._db.is_dirty():
+            title += " *"
+
+        self.setWindowTitle(title)
    
 
     @log_function_name()
@@ -831,33 +843,17 @@ class ShotBoard(QMainWindow):
             f"Shots/hour: {shots_per_hour}"
         )
 
-
-    # Ne cause pas de réactions en chaîne.
-    @log_function_name()
-    def update_window_title(self):
-        title = DEFAULT_TITLE
-        if self._db_filename:
-            title += f" - {os.path.basename(self._db_filename)}"
-        else:
-            title += " - (undefined)"
-    
-        # Add '*' if database has unsaved changes
-        if self._db.is_dirty():
-            title += " *"
-
-        self.setWindowTitle(title)
-
     
     def update_ui_state(self):
-        enabled = (self._video_path != None)
+        enabled = (self._video_path != None and self._ui_enabled)
         self._seek_slider.setEnabled(enabled)
         self._seek_spinbox.setEnabled(enabled)
         self._play_button.setEnabled(enabled)
         self._stop_button.setEnabled(enabled)
         self._split_button.setEnabled(enabled)
-        self._scan_button.setEnabled(not self.is_selection_empty())
-        self._merge_button.setEnabled(not self.is_selection_empty())
-        #self._detection_slider.setEnabled(not self.is_selection_empty())
+        self._scan_button.setEnabled(enabled and not self.is_selection_empty())
+        self._merge_button.setEnabled(enabled and not self.is_selection_empty())
+        #self._detection_slider.setEnabled(enabled and not self.is_selection_empty())
 
 
     def update_slider_and_spinbox(self, frame_index):
@@ -878,7 +874,7 @@ class ShotBoard(QMainWindow):
         self._history.clear()
         self.clear_shot_widgets()
         self._db.clear_shots()
-        self._db_filename = None
+        self._db_path = None
         self._video_path = None
         self._fps = 0
         self.update_ui_state()
@@ -1017,6 +1013,7 @@ class ShotBoard(QMainWindow):
         if not url:
             return None
         
+        self.enable_ui(False)
         self._video_path = url.toLocalFile()
         self.update_window_title()
 
@@ -1045,23 +1042,28 @@ class ShotBoard(QMainWindow):
 
         self.select_shot_widgets(0, 0)
         self.update_ui_state()
-        self.on_scroll()
+        self.enable_ui(True)
 
 
+    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
     def open_shot_list(self, json_path):
-        if json_path:
-            self._history.clear()
-            self._db.load_from_json(json_path)
-            self._db_filename = json_path
-            #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
-            if self._frame_count != self._db.get_frame_count():
-                QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
-                self._db.clear_shots()
-                self.deselect_all()
+        if json_path is None or not os.path.exists(json_path):
+            return
 
-            self.update_status_bar()
-            self.update_window_title()
-            self.update_grid_layout()
+        self.enable_ui(False)
+        self._history.clear()
+        self._db.load_from_json(json_path)
+        self._db_path = json_path
+        #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
+        if self._frame_count != self._db.get_frame_count():
+            QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
+            self._db.clear_shots()
+            self.deselect_all()
+
+        self.update_status_bar()
+        self.update_window_title()
+        self.update_grid_layout()
+        self.enable_ui(True)
 
 
     @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
@@ -1134,31 +1136,41 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return None
 
+        self._media_player.pause()
+
         # Get the current frame and evaluate the start and end frames of the shot
         start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)  # integers
         if frame_index == start_frame_index or frame_index == end_frame_index - 1:
             return None
         
+        self.enable_ui(False)
         self.deselect_all()
 
         # Insert a new frame in the database
-        shot_index = self._db.add_shot(frame_index)
+        new_shot_index = self._db.add_shot(frame_index)
+
+        # Initialize the thumbnail of the original shot widget
+        original_shot_widget = self._shot_widgets[new_shot_index - 1]
+        original_shot_widget.initialise_thumbnail()
 
         # Update the grid layout
         self.update_grid_layout()
-        self.select_shot_widgets(shot_index, shot_index)
-        
-        return shot_index
+        self.select_shot_widgets(new_shot_index, new_shot_index)
+        self.enable_ui(True)
+
+        return new_shot_index
 
     
     @log_function_name(has_params=True)
     def detect_shots_ssim(self, start_frame_index, end_frame_index):
-        self._media_player.pause()
-        self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
-
         assert self._video_path
         if not self._video_path:
             return
+
+        self._media_player.pause()
+        self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
+
+        self.enable_ui(False)
 
         # Get video properties
         probe = ffmpeg.probe(self._video_path)
@@ -1301,6 +1313,7 @@ class ShotBoard(QMainWindow):
 
         # Update the grid layout
         self.update_grid_layout()
+        self.enable_ui(True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1311,6 +1324,8 @@ class ShotBoard(QMainWindow):
 
         if self._selection_first_index == self._selection_last_index:
             return None
+
+        self.enable_ui(False)
 
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
         shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
@@ -1323,15 +1338,31 @@ class ShotBoard(QMainWindow):
         
         # Update the grid layout
         self.update_grid_layout()
-        shot_widget_min.initialise_thumbnail()
 
         # Reselect the first shot widget
         self.select_shot_widgets(shot_index_min, shot_index_min)
         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
+        self.enable_ui(True)
 
         return shot_widget_min
 
 
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    def save_shot_list(self, path):
+        if path is None:
+            return
+        
+        self.enable_ui(False)
+        self._db.save_to_json(path)
+        self._db_path = path
+        # self.push_filename_to_recent(path)  # update 'Open Recent' menu.
+        message = f"File saved successfully: {self._db_path}"
+        self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
+        self.update_window_title()
+        self.enable_ui(True)
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def export_selection(self, ask_for_path):
         if not self._video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
@@ -1360,10 +1391,13 @@ class ShotBoard(QMainWindow):
         if os.path.exists(save_path) and not QMessageBox.question(self, 'File Exists', f"The file {save_path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
            return
 
-        # Show a simple modal dialog
+        self.enable_ui(False)
+
+        # Show a modal dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Exporting...")
         dialog.setModal(True)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel("Please wait while the shot selection is exported..."))
         dialog.setLayout(layout)
@@ -1399,6 +1433,7 @@ class ShotBoard(QMainWindow):
 
         # Close the dialog automatically when finished
         dialog.close()
+        self.enable_ui(True)
 
 
     ##
@@ -1449,7 +1484,13 @@ class ShotBoard(QMainWindow):
     def cmd_scan_selected_shots(self):
         if self.is_selection_empty():
             return None
-        shot_widget = self._shot_widgets[self._selection_first_index] if self._selection_first_index == self._selection_last_index else self.merge_selected_shots()
+        
+        if self._selection_first_index == self._selection_last_index:
+            shot_widget = self._shot_widgets[self._selection_first_index]
+            shot_widget.initialise_thumbnail()
+        else:
+            shot_widget = self.merge_selected_shots()
+
         if shot_widget is None:
             return None
         self.detect_shots_ssim(shot_widget.get_start_frame_index(), shot_widget.get_end_frame_index())
@@ -1589,6 +1630,11 @@ class ShotBoard(QMainWindow):
     ##
     ## HELPERS
     ##
+
+
+    def enable_ui(self, enable):
+        self._ui_enabled = enable
+        self.update_ui_state()
 
 
     def convert_frame_index_to_qtvid_pos(self, frame_index):

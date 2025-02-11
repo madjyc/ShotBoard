@@ -53,7 +53,7 @@ class AudioPlayer(QThread):
         self._process = (
             ffmpeg
             .input(self._video_path, ss=self._start_pos)
-            #.filter('volume', f'{self._volume * 2}')
+            #.filter('volume', f'{self._volume}')
             .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
             #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
             .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
