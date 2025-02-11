@@ -32,7 +32,7 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.6"
+APP_VERSION = "0.6.7"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -1362,7 +1362,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def export_selection(self, ask_for_path):
         if not self._video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
