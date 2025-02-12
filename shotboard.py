@@ -14,13 +14,13 @@ from shotboard_ui import *
 from shotboard_cmd import *
 
 import ffmpeg
-import subprocess
 import cv2
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 import os
 import sys
+import subprocess
 import datetime
 from functools import wraps
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTimer, QTime, QElapsedTimer
@@ -32,12 +32,13 @@ from PyQt5.QtGui import QKeySequence, QIcon, QPalette, QColor
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
-APP_VERSION = "0.6.7"
+
+APP_VERSION = "0.6.8"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
-SPLITTER_HANDLE_WIDTH = 3
-UPDATE_TIMER_INTERVAL = 1000  # 1/2 s
+SPLITTER_HANDLE_WIDTH = 2
+UPDATE_TIMER_INTERVAL = 1000  # 1 s
 
 # Detection
 MIN_SSIM_DROP_THRESHOLD = 0.05
@@ -281,17 +282,35 @@ class ShotBoard(QMainWindow):
 
         file_menu.addSeparator()
 
-        # Create 'Export' action
-        action = QAction('Export', self)
-        action.triggered.connect(self.on_menu_export)
-        action.setShortcut(QKeySequence(Qt.CTRL + Qt.Key_E))
-        file_menu.addAction(action)
+        # Create 'Export...' submenu
+        export_menu = file_menu.addMenu('Export...')
 
-        # Create 'Export As' action
-        action = QAction('Export as', self)
-        action.triggered.connect(self.on_menu_export_as)
+        # Create 'Export Selection' action
+        action = QAction('Export Selection', self)
+        action.triggered.connect(self.on_menu_export_selection)
+        action.setShortcut(QKeySequence(Qt.CTRL + Qt.Key_E))
+        export_menu.addAction(action)
+
+        # Create 'Export Frame' action
+        action = QAction('Export Frame', self)
+        action.triggered.connect(self.on_menu_export_current_frame)
+        action.setShortcut(QKeySequence(Qt.CTRL + Qt.ALT + Qt.Key_E))
+        export_menu.addAction(action)
+
+        # Create 'Export As...' submenu
+        export_as_menu = file_menu.addMenu('Export As...')
+
+        # Create 'Export Selection As' action
+        action = QAction('Export Selection As', self)
+        action.triggered.connect(self.on_menu_export_selection_as)
         action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.Key_E))
-        file_menu.addAction(action)
+        export_as_menu.addAction(action)
+
+        # Create 'Export Frame As' action
+        action = QAction('Export Frame As', self)
+        action.triggered.connect(self.on_menu_export_current_frame_as)
+        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.ALT + Qt.Key_E))
+        export_as_menu.addAction(action)
 
         file_menu.addSeparator()
 
@@ -597,13 +616,23 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
-    def on_menu_export_as(self):
+    def on_menu_export_selection(self):
+        self.export_selection(False)
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_menu_export_selection_as(self):
         self.export_selection(True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
-    def on_menu_export(self):
-        self.export_selection(False)
+    def on_menu_export_current_frame(self):
+        self.export_single_frame(self._seek_spinbox.value(), False)
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_menu_export_current_frame_as(self):
+        self.export_single_frame(self._seek_spinbox.value(), True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -738,6 +767,9 @@ class ShotBoard(QMainWindow):
         if event.button() == Qt.LeftButton:
             frame_index = int(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
             self.set_qtvid_pos_to_mid_frame(frame_index)
+            # frame_index = round(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
+            # self.update_slider_and_spinbox(frame_index)
+            # self.pause_video()
             event.accept()
         QSlider.mousePressEvent(self._seek_slider, event)
 
@@ -745,6 +777,8 @@ class ShotBoard(QMainWindow):
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_slider_moved(self, frame_index):
         self.set_qtvid_pos_to_mid_frame(frame_index)
+        # self.update_slider_and_spinbox(frame_index)
+        # self.pause_video()
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
@@ -1109,6 +1143,11 @@ class ShotBoard(QMainWindow):
         self.stop_update_timer()
         self._media_player.pause()
 
+        # frame_index = self._seek_spinbox.value()
+        # qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(frame_index))
+        # self._media_player.setPosition(qtvid_pos)
+        # self.update_slider_and_spinbox(frame_index)
+
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
     def resume_video(self):
@@ -1372,6 +1411,8 @@ class ShotBoard(QMainWindow):
             QMessageBox.warning(self, "Export Error", "Please select shots first.")
             return
 
+        self._media_player.pause()
+
         # Calculate start time in seconds
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
         shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
@@ -1386,7 +1427,7 @@ class ShotBoard(QMainWindow):
             if not save_path:
                 return
         else:
-            save_path = self.make_export_path(start_pos)
+            save_path = self.make_export_path(start_pos, extension=".mp4")
 
         if os.path.exists(save_path) and not QMessageBox.question(self, 'File Exists', f"The file {save_path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
            return
@@ -1432,6 +1473,73 @@ class ShotBoard(QMainWindow):
             print(error_message)
 
         # Close the dialog automatically when finished
+        dialog.close()
+        self.enable_ui(True)
+
+
+    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    def export_single_frame(self, frame_index, ask_for_path=True):
+        if not self._video_path:
+            QMessageBox.warning(self, "Export Error", "Please load a video first.")
+            return
+
+        self._media_player.pause()
+
+        # Calculate timestamp in seconds
+        start_pos = frame_index / self._fps
+
+        if ask_for_path:
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Export Frame", "", "JPEG Files (*.jpg);;PNG Files (*.png);;All Files (*)"
+            )
+            if not save_path:
+                return
+        else:
+            save_path = self.make_export_path(start_pos, extension=".jpg")
+
+        if os.path.exists(save_path) and not QMessageBox.question(
+            self, "File Exists", f"The file {save_path} already exists. Do you want to overwrite it?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        ) == QMessageBox.Yes:
+            return
+
+        self.enable_ui(False)
+
+        # Show a modal dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Exporting Frame...")
+        dialog.setModal(True)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Please wait while the frame is exported..."))
+        dialog.setLayout(layout)
+        dialog.show()
+        QApplication.processEvents()  # Keep UI responsive
+
+        # FFmpeg command to extract a single frame
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite without asking
+            "-ss", str(start_pos),  # Seek to the frame
+            "-i", self._video_path,  # Input file
+            "-frames:v", "1",  # Export only one frame
+            "-q:v", "2",  # High quality (lower = better quality, range: 2-31)
+            "-update", "1",  # Ensure single image update (for PNG/JPEG output)
+            save_path  # Output file
+        ]
+
+        # Run FFmpeg command
+        try:
+            subprocess.run(ffmpeg_cmd, check=True)
+            message = f"Frame exported successfully: {save_path}"
+            self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
+        except subprocess.CalledProcessError as e:
+            error_message = f"Export failed: {e}"
+            self._status_bar.showMessage(error_message, 5000)
+            QMessageBox.warning(self, "Export Error", error_message)
+            print(error_message)
+
+        # Close the dialog and re-enable UI
         dialog.close()
         self.enable_ui(True)
 
@@ -1653,7 +1761,7 @@ class ShotBoard(QMainWindow):
         return (MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD) * (value / DETECTION_SLIDER_STEPS) + MIN_SSIM_DROP_THRESHOLD
 
 
-    def make_export_path(self, start_pos):
+    def make_export_path(self, start_pos, extension):
         # Extract filename and remove extension
         filename, _ = os.path.splitext(os.path.basename(self._video_path))  # Split the extension
         title = filename.replace(" ", "")  # Remove spaces
@@ -1663,9 +1771,9 @@ class ShotBoard(QMainWindow):
         if "(" in title and title.endswith(")"):
             title, year = title.rsplit("(", 1)
             year = year[:-1]  # Remove closing ')'
-            filename = f"{title}_{year}_{formatted_timecode}.mp4"
+            filename = f"{title}_{year}_{formatted_timecode}{extension}"
         else:
-            filename = f"{title}_{formatted_timecode}.mp4"
+            filename = f"{title}_{formatted_timecode}{extension}"
 
         # Create "Export" subdirectory
         export_dir = os.path.join(os.path.dirname(self._video_path), "Export")

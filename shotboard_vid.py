@@ -254,7 +254,7 @@ class VideoPlayer(QThread):
                 time_diff = video_time - audio_time  # in s
 
                 if time_diff < -MAX_TIME_DIFF:  # Video is behind → drop a frame
-                    if frame_index < self._end_frame_index - 2:  # Last frame should always be displayed
+                    if frame_index + 1 < self._end_frame_index:  # Last frame should always be displayed
                         frame_index += 1  # Drop this frame and move to the next
                     continue
 

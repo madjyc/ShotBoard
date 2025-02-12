@@ -3,6 +3,7 @@ from shotboard_vid import *
 import ffmpeg
 import subprocess
 import os
+import queue
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QTimer
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
@@ -218,9 +219,16 @@ class ShotWidget(QFrame):
     def on_frame_ready(self):
         assert self._videoplayer
         if not self._videoplayer._frame_queue.empty():
-            qimage, frame_index = self._videoplayer._frame_queue.get()  # Thread-safe
-            #print(f"Start updating frame {frame_index}")
-            self.update_frame(qimage, frame_index)
+            try:
+                qimage, frame_index = self._videoplayer._frame_queue.get()  # Thread-safe
+                #print(f"Start updating frame {frame_index}")
+                self.update_frame(qimage, frame_index)
+            except queue.Empty:
+                print("Warning: Frame queue is empty. Skipping frame.")
+                return
+            except Exception as e:
+                print(f"Error retrieving frame from queue: {e}")
+                return
 
 
     def update_frame(self, qimage, frame_index):

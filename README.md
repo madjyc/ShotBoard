@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.6.7-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.6.8-blue.svg)
 
-# ShotBoard v0.6.7
+# ShotBoard v0.6.8
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -11,8 +11,9 @@ For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 With **ShotBoard**, you can:
 - Open a movie file (MP4) and detect its individual shots automatically.
-- Display those shots as thumbnails in a grid-style storyboard for quick navigation.
+- Display those shots as animated thumbnails in a grid-style storyboard for quick navigation.
 - Hover over thumbnails to preview the corresponding shots instantly.
+- Check the 'Lines' option to display the thumbnails as line drawings (discard all color and lighting information).
 
 **ShotBoard** offers a seamless way to explore film storytelling.
 
@@ -120,16 +121,20 @@ Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thum
 
 ### Exporting Shots to a MP4 file
 1. Select one or multiple shots.
-2. Click on **File > Export** or **File > Export as**.
-**File > Export**: ShotBoard will save the excerpt using an automated convention (i.e. the original video filename plus a timecode to indicate the starting position) at the original video location.
-**File > Export As**: Manually choose the save location and filename.
+2. Click on **File > Export... > Export Selection** or **File > Export As... > Export Selection As**.
+**Export Selection**: ShotBoard will save the excerpt using an automated convention (i.e. the original video filename plus a timecode to indicate the starting position) at the original video location.
+**Export Selection As**: Manually choose the save location and filename.
+
+### Exporting Current Frame as a JPG or PNG File
+1. Pause the video at the frame you want to export.
+2. Click on **File > Export... > Export Frame** or **File > Export As... > Export Frame As**.
 
 ## Tips
 - Raise or lower the horizontal splitter to give more room to the video or the board.
 Although ShotBoard will successfully detect most of the shots, it may struggle when:
 - Transitions are blurry (e.g. fading to white or black, crossfading, strong motion blur)
 - The lighting is stroboscopic (e.g. lightning, flashing lights)
-- Images are choppy (e.g. faked slow motion in post)
+- Images are choppy or shaking (e.g. faked slow motion in post)
 To avoid overdetecting shots:
 1. Start by scanning at a similarity threshold around 0.25.
 2. Merge overdetected shots.
