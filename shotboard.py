@@ -35,7 +35,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.12"
+APP_VERSION = "0.6.13"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -77,13 +77,21 @@ RIGHT_CLICK_SAVE = True
 ## DECORATORS
 ##
 
-def log_function_name(has_params=False, color=PRINT_DEFAULT_COLOR):
+
+def log_function_name(color=PRINT_DEFAULT_COLOR):
     def decorator(func):
+        @wraps(func)
         def wrapper(self, *args, **kwargs):
             if LOG_FUNCTION_NAMES:
                 class_name = self.__class__.__name__
                 function_name = func.__name__
                 print(f"Calling function: {class_name}.{color}{function_name}{PRINT_DEFAULT_COLOR}")
+
+            # Check if the function has parameters (other than 'self')
+            sig = signature(func)
+            has_params = len(sig.parameters) > 1  # 'self' is the first parameter
+
+            # Call the function with or without arguments based on its signature
             return func(self, *args, **kwargs) if has_params else func(self)
         return wrapper
     return decorator
@@ -165,7 +173,7 @@ class ShotBoard(QMainWindow):
             super().mousePressEvent(event)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def __init__(self, geom=QRect(100, 100, 800, 600)):
         super().__init__()
 
@@ -655,13 +663,13 @@ class ShotBoard(QMainWindow):
             self.close()
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_grid_layout()
 
 
-    #@log_function_name(has_params=True)
+    #@log_function_name()
     def eventFilter(self, obj, event):
         if self._ui_enabled:
             if event.type() == QEvent.MouseButtonPress:
@@ -698,7 +706,7 @@ class ShotBoard(QMainWindow):
         return super().eventFilter(obj, event)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_handle_splitter_moved(self, pos, index):
         pass
 
@@ -728,12 +736,12 @@ class ShotBoard(QMainWindow):
         self.stop_video()
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_edge_detection_toggled(self, checked):
         ShotWidget.detect_edges = checked
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_edge_factor_changed(self, value):
         ShotWidget.edge_factor = value
 
@@ -753,13 +761,13 @@ class ShotBoard(QMainWindow):
         self.cmd_merge_selected_shots()
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_detection_slider_moved(self, value):
         ssim_drop_threshold = self.convert_detection_slider_value_to_ssim_drop_threshold(value)
         self._detection_label.setText(f"{ssim_drop_threshold:.2f}")
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_volume_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             volume = int(self._volume_slider.minimum() + ((self._volume_slider.maximum() - self._volume_slider.minimum()) * event.x()) / self._volume_slider.width())
@@ -769,13 +777,13 @@ class ShotBoard(QMainWindow):
         QSlider.mousePressEvent(self._volume_slider, event)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_volume_slider_moved(self, volume):
         ShotWidget.volume = volume * 0.01
         self._media_player.setVolume(volume)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_seek_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             frame_index = round(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
@@ -784,17 +792,17 @@ class ShotBoard(QMainWindow):
         QSlider.mousePressEvent(self._seek_slider, event)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_seek_slider_moved(self, frame_index):
         self.set_mediaplayer_pos_to_mid_frame(frame_index)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_seek_spinbox_changed(self, frame_index):
         self.set_mediaplayer_pos_to_mid_frame(frame_index)
 
 
-    @log_function_name(has_params=True)
+    @log_function_name()
     def on_mediaplayer_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
             self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
@@ -820,7 +828,7 @@ class ShotBoard(QMainWindow):
         #         visible_shot_widgets.append(shot_widget)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
         if not self._ui_enabled:
             return
@@ -1049,7 +1057,7 @@ class ShotBoard(QMainWindow):
     ##
 
 
-    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
+    @log_function_name(color=PRINT_YELLOW_COLOR)
     def set_video(self, url):
         assert url
         if not url:
@@ -1087,7 +1095,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
 
-    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
+    @log_function_name(color=PRINT_YELLOW_COLOR)
     def open_shot_list(self, json_path):
         if json_path is None or not os.path.exists(json_path):
             return
@@ -1108,7 +1116,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
 
-    @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
+    @log_function_name(color=PRINT_YELLOW_COLOR)
     def set_mediaplayer_pos_to_mid_frame(self, frame_index):
         qtvid_pos = self.convert_frame_index_to_qtvid_pos(frame_index)
         self._media_player.setPosition(qtvid_pos)
@@ -1176,7 +1184,7 @@ class ShotBoard(QMainWindow):
         self.stop_update_timer()
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def split_video(self, frame_index):
         assert self._shot_widgets
         if not self._shot_widgets:
@@ -1206,7 +1214,7 @@ class ShotBoard(QMainWindow):
         return True
 
     
-    @log_function_name(has_params=True)
+    @log_function_name()
     def detect_shots_ssim(self, start_frame_index, end_frame_index):
         assert self._video_path
         if not self._video_path:
@@ -1393,7 +1401,7 @@ class ShotBoard(QMainWindow):
         return shot_widget_min
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def save_shot_list(self, path):
         if path is None:
             return
@@ -1408,7 +1416,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def export_selection(self, ask_for_path):
         if not self._video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
@@ -1484,7 +1492,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
 
-    @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def export_single_frame(self, frame_index, ask_for_path=True):
         if not self._video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
@@ -1654,7 +1662,7 @@ class ShotBoard(QMainWindow):
         return True
 
 
-    # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
+    # @log_function_name(color=PRINT_GRAY_COLOR)
     def select_shot_widgets(self, first_index, last_index):
         if not self._shot_widgets:
             return
@@ -1700,7 +1708,7 @@ class ShotBoard(QMainWindow):
         return True
 
 
-    # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
+    # @log_function_name(color=PRINT_GRAY_COLOR)
     def extend_shot_selection(self, shot_index):
         # If the new index doesn't change the extented selection, do nothing
         if shot_index == self._selection_last_index:
