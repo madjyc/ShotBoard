@@ -24,6 +24,7 @@ import sys
 import subprocess
 import datetime
 from functools import wraps
+from inspect import signature
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTimer, QTime, QElapsedTimer
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QShortcut, QMessageBox, QDialog, QFileDialog, QProgressDialog
 from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
@@ -34,7 +35,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.10"
+APP_VERSION = "0.6.12"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -59,6 +60,8 @@ VIDEO_BACKGROUND_COLOR = "#000000"  # Black
 BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
 
 # Debug
+LOG_FUNCTION_NAMES = False
+
 PRINT_DEFAULT_COLOR = '\033[0m'
 PRINT_GRAY_COLOR = '\033[90m'
 PRINT_RED_COLOR = '\033[91m'  # red
@@ -66,16 +69,13 @@ PRINT_GREEN_COLOR = '\033[92m'  # green
 PRINT_YELLOW_COLOR  = '\033[93m'  # yellow
 PRINT_CYAN_COLOR = '\033[96m'  # cyan
 
-# Auto-save
-RCLICK_SAVE = True
+# Use save extra-shortcut or not
+RIGHT_CLICK_SAVE = True
 
 
 ##
 ## DECORATORS
 ##
-
-
-LOG_FUNCTION_NAMES = False
 
 def log_function_name(has_params=False, color=PRINT_DEFAULT_COLOR):
     def decorator(func):
@@ -96,8 +96,15 @@ def command_selection_context(func):
         # Store context before action execution
         old_first_index, old_last_index = self._selection_first_index, self._selection_last_index
 
-        # Execute action
-        func(self, *args, **kwargs)
+        # Execute action whether or not the function accepts arguments
+        sig = signature(func)
+        if len(sig.parameters) > 1:  # 'self' is the first parameter
+            result = func(self, *args, **kwargs)
+        else:
+            result = func(self)
+
+        if result is None:
+            return  # Stop execution if action was unsuccessful
 
         # Store context after action execution
         new_first_index, new_last_index = self._selection_first_index, self._selection_last_index
@@ -119,8 +126,13 @@ def command_full_context(func):
         old_frame_indexes = self._db.get_shots()
         old_first_index, old_last_index = self._selection_first_index, self._selection_last_index
 
-        # Execute action
-        result = func(self, *args, **kwargs)
+        # Execute action whether or not the function accepts arguments
+        sig = signature(func)
+        if len(sig.parameters) > 1:  # 'self' is the first parameter
+            result = func(self, *args, **kwargs)
+        else:
+            result = func(self)
+
         if result is None:
             return  # Stop execution if action was unsuccessful
 
@@ -654,7 +666,7 @@ class ShotBoard(QMainWindow):
         if self._ui_enabled:
             if event.type() == QEvent.MouseButtonPress:
                 if event.button() == Qt.RightButton:
-                    if RCLICK_SAVE:
+                    if RIGHT_CLICK_SAVE:
                         self.on_menu_save()
                         return True
             
@@ -1041,7 +1053,7 @@ class ShotBoard(QMainWindow):
     def set_video(self, url):
         assert url
         if not url:
-            return None
+            return
         
         self.enable_ui(False)
         self._video_path = url.toLocalFile()
@@ -1168,14 +1180,14 @@ class ShotBoard(QMainWindow):
     def split_video(self, frame_index):
         assert self._shot_widgets
         if not self._shot_widgets:
-            return None
+            return
 
         self.pause_video()
 
         # Get the current frame and evaluate the start and end frames of the shot
         start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)  # integers
         if frame_index == start_frame_index or frame_index == end_frame_index - 1:
-            return None
+            return
         
         self.enable_ui(False)
         self.deselect_all()
@@ -1191,8 +1203,7 @@ class ShotBoard(QMainWindow):
         self.update_grid_layout()
         self.select_shot_widgets(new_shot_index, new_shot_index)
         self.enable_ui(True)
-
-        return new_shot_index
+        return True
 
     
     @log_function_name(has_params=True)
@@ -1348,16 +1359,17 @@ class ShotBoard(QMainWindow):
         # Update the grid layout
         self.update_grid_layout()
         self.enable_ui(True)
+        return True
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def merge_selected_shots(self):
         assert self._shot_widgets
         if not self._shot_widgets:
-            return None
+            return
 
         if self._selection_first_index == self._selection_last_index:
-            return None
+            return
 
         self.enable_ui(False)
 
@@ -1559,23 +1571,23 @@ class ShotBoard(QMainWindow):
 
 
     @command_selection_context
-    def cmd_select_all(self, _):
-        self.select_all()
+    def cmd_select_all(self):
+        return self.select_all()
 
 
     @command_selection_context
-    def cmd_deselect_all(self, _):
-        self.deselect_all()
+    def cmd_deselect_all(self):
+        return self.deselect_all()
 
 
     @command_selection_context
     def cmd_select_shot(self, shot_index):
-        self.select_shot_widgets(shot_index, shot_index)
+        return self.select_shot_widgets(shot_index, shot_index)
 
 
     @command_selection_context
     def cmd_extend_shot_selection(self, shot_index):
-        self.extend_shot_selection(shot_index)
+        return self.extend_shot_selection(shot_index)
 
 
     @command_full_context
@@ -1586,7 +1598,7 @@ class ShotBoard(QMainWindow):
     @command_full_context
     def cmd_scan_selected_shots(self):
         if self.is_selection_empty():
-            return None
+            return
         
         if self._selection_first_index == self._selection_last_index:
             shot_widget = self._shot_widgets[self._selection_first_index]
@@ -1595,7 +1607,7 @@ class ShotBoard(QMainWindow):
             shot_widget = self.merge_selected_shots()
 
         if shot_widget is None:
-            return None
+            return
         self.detect_shots_ssim(shot_widget.get_start_frame_index(), shot_widget.get_end_frame_index())
         return shot_widget
 
@@ -1617,22 +1629,29 @@ class ShotBoard(QMainWindow):
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
     def select_all(self):
+        if self._selection_first_index == 0 and self._selection_last_index == len(self._shot_widgets) - 1:
+            return
+        
         self._selection_first_index = 0
         self._selection_last_index = len(self._shot_widgets) - 1
-        for idx, shot_widget in enumerate(self._shot_widgets):
+        for _, shot_widget in enumerate(self._shot_widgets):
             shot_widget.set_selected(True)
         self.update_ui_state()
+        return True
 
 
     # @log_function_name(color=PRINT_GRAY_COLOR)
     def deselect_all(self):
-        if self._selection_first_index != None:
-            shot_index_min, shot_index_max = self.get_selection_index_min_max()
-            for i in range(shot_index_min, shot_index_max + 1):
-                self._shot_widgets[i].set_selected(False)
+        if self._selection_first_index == None:
+            return
+
+        shot_index_min, shot_index_max = self.get_selection_index_min_max()
+        for i in range(shot_index_min, shot_index_max + 1):
+            self._shot_widgets[i].set_selected(False)
         self._selection_first_index = None
         self._selection_last_index = None
         self.update_ui_state()
+        return True
 
 
     # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
@@ -1655,6 +1674,9 @@ class ShotBoard(QMainWindow):
 
         new_index_min, new_index_max = min(first_index, last_index), max(first_index, last_index)
 
+        if new_index_min == old_index_min and new_index_max == old_index_max:
+            return  # No changes in selection
+
         if old_index_min is None:
             # If there was no previous selection, simply select the new range
             select_indices = set(range(new_index_min, new_index_max + 1))
@@ -1675,6 +1697,7 @@ class ShotBoard(QMainWindow):
         self._selection_first_index = first_index
         self._selection_last_index = last_index
         self.update_ui_state()
+        return True
 
 
     # @log_function_name(has_params=True, color=PRINT_GRAY_COLOR)
@@ -1685,7 +1708,6 @@ class ShotBoard(QMainWindow):
 
         # If the selection is empty, select from 0 to the new index
         if self._selection_first_index == None:
-            assert self._selection_last_index == None
             for i in range(0, shot_index + 1):
                 self._shot_widgets[i].set_selected(True)
             self._selection_first_index = 0
@@ -1721,6 +1743,7 @@ class ShotBoard(QMainWindow):
 
         self._selection_last_index = shot_index
         self.update_ui_state()
+        return True
 
 
     def get_selection_index_min_max(self):
