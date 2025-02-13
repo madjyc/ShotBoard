@@ -34,7 +34,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.9"
+APP_VERSION = "0.6.10"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -667,9 +667,9 @@ class ShotBoard(QMainWindow):
                 if modifiers & Qt.ShiftModifier:
                     frame_inc = 4  # 4 frames
                 elif modifiers & Qt.ControlModifier:
-                    frame_inc = self._fps  # 1 second
+                    frame_inc = round(self._fps)  # 1 second
                 elif modifiers & Qt.AltModifier:
-                    frame_inc = 4 * self._fps  # 4 seconds
+                    frame_inc = round(4 * self._fps)  # 4 seconds
                 else:
                     frame_inc = 1
 
