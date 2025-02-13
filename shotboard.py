@@ -420,11 +420,6 @@ class ShotBoard(QMainWindow):
         self._stop_button.setStatusTip("Click to stop playing.")
         button_layout.addWidget(self._stop_button)
 
-        # Create a debug button
-        self._debug_button = QPushButton("DEBUG")
-        self._debug_button.clicked.connect(self.on_debug_button_clicked)
-        button_layout.addWidget(self._debug_button)
-
         # Create an edge detection checkbox with a label
         self._edgedetect_checkbox = QCheckBox("Lines")  
         self._edgedetect_checkbox.toggled.connect(self.on_edge_detection_toggled)
@@ -721,15 +716,6 @@ class ShotBoard(QMainWindow):
         self.stop_video()
 
 
-    @log_function_name(color=PRINT_GREEN_COLOR)
-    def on_debug_button_clicked(self):
-        conv = 0.001 * self._fps  # fps / 1000
-        for pos in range(200):
-            self._media_player.setPosition(pos)
-            frame = math.ceil(pos * conv)
-            print(f"At {pos} ms: frame {frame}")
-
-
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_edge_detection_toggled(self, checked):
         ShotWidget.detect_edges = checked
@@ -840,7 +826,7 @@ class ShotBoard(QMainWindow):
             self.cmd_select_shot(shot_index)
 
         start_frame_index = shot_widget.get_start_frame_index()
-        qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(start_frame_index))
+        qtvid_pos = self.convert_frame_index_to_qtvid_pos(start_frame_index)
         self._media_player.setPosition(qtvid_pos)
         self.update_slider_and_spinbox(start_frame_index)
 
@@ -1132,7 +1118,6 @@ class ShotBoard(QMainWindow):
             self._update_timer.stop()
 
         self.on_timer_timeout()
-        self.set_mediaplayer_pos_to_spinbox_value()
 
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
