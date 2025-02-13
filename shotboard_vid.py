@@ -265,7 +265,7 @@ class VideoPlayer(QThread):
 
                 remaining_time = int(max(0, min(remaining_time, TARGET_TIME * 2)))  # clamp to [0, 2 * TARGET_TIME]
                 if remaining_time > 0:
-                    self.msleep(remaining_time)
+                    self.msleep(remaining_time)  # in ms
 
         self.cleanup()
 

@@ -17,6 +17,7 @@ import ffmpeg
 import cv2
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
+import math
 import matplotlib.pyplot as plt
 import os
 import sys
@@ -33,7 +34,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.8"
+APP_VERSION = "0.6.9"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -382,7 +383,7 @@ class ShotBoard(QMainWindow):
         self._video_widget = QVideoWidget()
         self._video_widget.setStyleSheet(f"background-color: {VIDEO_BACKGROUND_COLOR};")
         self._media_player.setVideoOutput(self._video_widget)
-        self._video_widget.mousePressEvent = self.on_video_widget_clicked
+        self._video_widget.mousePressEvent = self.on_video_clicked
         top_layout.addWidget(self._video_widget)
 
         # Create a horizontal layout for the slider
@@ -418,6 +419,11 @@ class ShotBoard(QMainWindow):
         self._stop_button.clicked.connect(self.on_stop_button_clicked)
         self._stop_button.setStatusTip("Click to stop playing.")
         button_layout.addWidget(self._stop_button)
+
+        # Create a debug button
+        self._debug_button = QPushButton("DEBUG")
+        self._debug_button.clicked.connect(self.on_debug_button_clicked)
+        button_layout.addWidget(self._debug_button)
 
         # Create an edge detection checkbox with a label
         self._edgedetect_checkbox = QCheckBox("Lines")  
@@ -675,10 +681,10 @@ class ShotBoard(QMainWindow):
                 frame_index = self.qtvid_pos_to_frame_index()
 
                 if event.key() == Qt.Key_Right:
-                    self.set_qtvid_pos_to_mid_frame(frame_index + frame_inc)
+                    self.set_mediaplayer_pos_to_mid_frame(frame_index + frame_inc)
                     return True
                 elif event.key() == Qt.Key_Left:
-                    self.set_qtvid_pos_to_mid_frame(frame_index - frame_inc)
+                    self.set_mediaplayer_pos_to_mid_frame(frame_index - frame_inc)
                     return True
 
         # Unprocessed events propagate as usual
@@ -691,7 +697,7 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
-    def on_video_widget_clicked(self):
+    def on_video_clicked(self):
         if not self._video_path or not self._ui_enabled:
             return
         self.on_play_button_clicked()
@@ -713,6 +719,15 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_stop_button_clicked(self):
         self.stop_video()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_debug_button_clicked(self):
+        conv = 0.001 * self._fps  # fps / 1000
+        for pos in range(200):
+            self._media_player.setPosition(pos)
+            frame = math.ceil(pos * conv)
+            print(f"At {pos} ms: frame {frame}")
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
@@ -750,7 +765,7 @@ class ShotBoard(QMainWindow):
     def on_volume_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             volume = int(self._volume_slider.minimum() + ((self._volume_slider.maximum() - self._volume_slider.minimum()) * event.x()) / self._volume_slider.width())
-            ShotWidget.volume = volume / 100
+            ShotWidget.volume = volume * 0.01
             self._media_player.setVolume(volume)
             event.accept()
         QSlider.mousePressEvent(self._volume_slider, event)
@@ -758,32 +773,27 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_volume_slider_moved(self, volume):
-        ShotWidget.volume = volume / 100
+        ShotWidget.volume = volume * 0.01
         self._media_player.setVolume(volume)
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_slider_click(self, event):
         if event.button() == Qt.LeftButton:
-            frame_index = int(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
-            self.set_qtvid_pos_to_mid_frame(frame_index)
-            # frame_index = round(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
-            # self.update_slider_and_spinbox(frame_index)
-            # self.pause_video()
+            frame_index = round(self._seek_slider.minimum() + ((self._seek_slider.maximum() - self._seek_slider.minimum()) * event.x()) / self._seek_slider.width())
+            self.set_mediaplayer_pos_to_mid_frame(frame_index)
             event.accept()
         QSlider.mousePressEvent(self._seek_slider, event)
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_slider_moved(self, frame_index):
-        self.set_qtvid_pos_to_mid_frame(frame_index)
-        # self.update_slider_and_spinbox(frame_index)
-        # self.pause_video()
+        self.set_mediaplayer_pos_to_mid_frame(frame_index)
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
     def on_seek_spinbox_changed(self, frame_index):
-        self.set_qtvid_pos_to_mid_frame(frame_index)
+        self.set_mediaplayer_pos_to_mid_frame(frame_index)
 
 
     @log_function_name(has_params=True)
@@ -817,9 +827,7 @@ class ShotBoard(QMainWindow):
         if not self._ui_enabled:
             return
         
-        if self._update_timer.isActive():
-            self._update_timer.stop()
-        self._media_player.pause()
+        self.pause_video()
 
         # Fetch the shot widget emitting the signal
         shot_widget = self.sender()
@@ -831,7 +839,7 @@ class ShotBoard(QMainWindow):
         else:
             self.cmd_select_shot(shot_index)
 
-        start_frame_index = shot_widget.get_start_frame_index()  # integer
+        start_frame_index = shot_widget.get_start_frame_index()
         qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(start_frame_index))
         self._media_player.setPosition(qtvid_pos)
         self.update_slider_and_spinbox(start_frame_index)
@@ -839,7 +847,7 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
     def on_timer_timeout(self):
-        frame_index = self.qtvid_pos_to_frame_index()  # float
+        frame_index = self.qtvid_pos_to_frame_index()
         self.update_slider_and_spinbox(frame_index)
 
 
@@ -894,8 +902,10 @@ class ShotBoard(QMainWindow):
         self._seek_slider.blockSignals(True)
         self._seek_spinbox.blockSignals(True)
 
-        self._seek_slider.setValue(int(frame_index))
-        self._seek_spinbox.setValue(int(frame_index))
+        if self._seek_slider.value() != frame_index:
+            self._seek_slider.setValue(frame_index)
+        if self._seek_spinbox.value() != frame_index:
+            self._seek_spinbox.setValue(frame_index)
 
         self._seek_slider.blockSignals(False)
         self._seek_spinbox.blockSignals(False)
@@ -1101,11 +1111,14 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(has_params=True, color=PRINT_YELLOW_COLOR)
-    def set_qtvid_pos_to_mid_frame(self, frame_index):  # frame index as a float (e.g. 23.5)
-        self.pause_video()
-        self.update_slider_and_spinbox(frame_index)
-        qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(frame_index))
+    def set_mediaplayer_pos_to_mid_frame(self, frame_index):
+        qtvid_pos = self.convert_frame_index_to_qtvid_pos(frame_index)
         self._media_player.setPosition(qtvid_pos)
+        self.update_slider_and_spinbox(frame_index)
+
+
+    def set_mediaplayer_pos_to_spinbox_value(self):
+        self.set_mediaplayer_pos_to_mid_frame(self._seek_spinbox.value())
 
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
@@ -1117,7 +1130,9 @@ class ShotBoard(QMainWindow):
     def stop_update_timer(self):
         if self._update_timer.isActive():
             self._update_timer.stop()
-            self.on_timer_timeout()
+
+        self.on_timer_timeout()
+        self.set_mediaplayer_pos_to_spinbox_value()
 
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
@@ -1140,13 +1155,8 @@ class ShotBoard(QMainWindow):
         if not self._media_player:
             return
         
-        self.stop_update_timer()
         self._media_player.pause()
-
-        # frame_index = self._seek_spinbox.value()
-        # qtvid_pos = round(self.convert_frame_index_to_qtvid_pos(frame_index))
-        # self._media_player.setPosition(qtvid_pos)
-        # self.update_slider_and_spinbox(frame_index)
+        self.stop_update_timer()
 
 
     @log_function_name(color=PRINT_YELLOW_COLOR)
@@ -1165,8 +1175,8 @@ class ShotBoard(QMainWindow):
         if not self._media_player:
             return
         
-        self.stop_update_timer()
         self._media_player.stop()
+        self.stop_update_timer()
 
 
     @log_function_name(has_params=True, color=PRINT_GREEN_COLOR)
@@ -1175,7 +1185,7 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return None
 
-        self._media_player.pause()
+        self.pause_video()
 
         # Get the current frame and evaluate the start and end frames of the shot
         start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)  # integers
@@ -1206,7 +1216,7 @@ class ShotBoard(QMainWindow):
         if not self._video_path:
             return
 
-        self._media_player.pause()
+        self.pause_video()
         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(start_frame_index)))
 
         self.enable_ui(False)
@@ -1411,7 +1421,7 @@ class ShotBoard(QMainWindow):
             QMessageBox.warning(self, "Export Error", "Please select shots first.")
             return
 
-        self._media_player.pause()
+        self.pause_video()
 
         # Calculate start time in seconds
         shot_index_min, shot_index_max = self.get_selection_index_min_max()
@@ -1483,7 +1493,7 @@ class ShotBoard(QMainWindow):
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
             return
 
-        self._media_player.pause()
+        self.pause_video()
 
         # Calculate timestamp in seconds
         start_pos = frame_index / self._fps
@@ -1746,15 +1756,15 @@ class ShotBoard(QMainWindow):
 
 
     def convert_frame_index_to_qtvid_pos(self, frame_index):
-        assert self._fps > 0
-        offset = int(frame_index) - 0.5
-        return offset * 1000 / self._fps if offset > 0 else 0  # returns mid-frame position in milliseconds
+        # In Qt, frame 0 is exactly at pos=0 ms, frame 1 is at any pos in ]0; 1*1000/fps], frame n is at any pos in ](n-1)*1000/fps; n*1000/fps].
+        # We play it safe by choosing a pos at mid-frame.
+        offset_index = int(frame_index) - 0.5
+        return max(0, int(offset_index * 1000 / self._fps))  # returns mid-frame position in milliseconds
 
 
     def qtvid_pos_to_frame_index(self):
-        assert self._fps > 0
-        qtvid_pos = self._media_player.position()
-        return (qtvid_pos * 0.001 * self._fps) + 1  # returns a frame index as a float value (e.g. 13.5)
+        # In Qt, frame 0 is exactly at pos=0 ms, frame 1 is at any pos in ]0; 1*1000/fps], frame n is at any pos in ](n-1)*1000/fps; n*1000/fps].
+        return math.ceil(self._media_player.position() * 0.001 * self._fps)  # integer
 
 
     def convert_detection_slider_value_to_ssim_drop_threshold(self, value):
@@ -1765,15 +1775,15 @@ class ShotBoard(QMainWindow):
         # Extract filename and remove extension
         filename, _ = os.path.splitext(os.path.basename(self._video_path))  # Split the extension
         title = filename.replace(" ", "")  # Remove spaces
-        formatted_timecode = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}"
+        timestamp = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}"
 
         # Split title and year, assuming the format "Title (Year)"
         if "(" in title and title.endswith(")"):
             title, year = title.rsplit("(", 1)
             year = year[:-1]  # Remove closing ')'
-            filename = f"{title}_{year}_{formatted_timecode}{extension}"
+            filename = f"{title}_{year}_{timestamp}{extension}"
         else:
-            filename = f"{title}_{formatted_timecode}{extension}"
+            filename = f"{title}_{timestamp}{extension}"
 
         # Create "Export" subdirectory
         export_dir = os.path.join(os.path.dirname(self._video_path), "Export")
