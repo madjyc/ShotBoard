@@ -515,6 +515,12 @@ class ShotBoard(QMainWindow):
         button_layout.addStretch()
         button_layout.addWidget(self._merge_button)
 
+        # Create a DEBUG button
+        # self._debug_button = QPushButton('DEBUG')
+        # self._debug_button.clicked.connect(self.on_debug_button_clicked)
+        # button_layout.addStretch()
+        # button_layout.addWidget(self._debug_button)
+
         # Volume label
         volume_label = QLabel("Volume")
         volume_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -762,6 +768,11 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_debug_button_clicked(self):
+        pass
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_detection_slider_moved(self, value):
         ssim_drop_threshold = self.convert_detection_slider_value_to_ssim_drop_threshold(value)
         self._detection_label.setText(f"{ssim_drop_threshold:.2f}")
@@ -818,14 +829,19 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_scroll(self):
         """Detect which ShotWidgets are visible in the scroll area."""
+        if not SHOT_WIDGET_DEFFERRED_LOADING:
+            return
+        
         viewport = self._scroll_area.viewport()
         scroll_pos = self._scroll_area.verticalScrollBar().value()
         viewport_rect = QRect(0, scroll_pos, viewport.width(), viewport.height())
 
-        # visible_shot_widgets = []
-        # for shot_widget in self._shot_widgets:
-        #     if viewport_rect.intersects(shot_widget.geometry()):
-        #         visible_shot_widgets.append(shot_widget)
+        ShotWidget.thumbnail_manager.clear_priority_list()
+        for shot_widget in self._shot_widgets:
+            if viewport_rect.intersects(shot_widget.geometry()):
+                print(f"on_scroll > shot_widget {shot_widget.start_frame_index} requesting thumbnail...")
+                shot_widget.request_thumbnail()
+                print(f"on_scroll > shot_widget {shot_widget.start_frame_index} thumbnail requested.")
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -927,6 +943,9 @@ class ShotBoard(QMainWindow):
         self._db_path = None
         self._video_path = None
         self._fps = 0
+        if SHOT_WIDGET_DEFFERRED_LOADING:
+            ShotWidget.thumbnail_manager.clear()
+            ShotWidget.thumbnail_manager.set_video(None, None)
         self.update_ui_state()
         self.update_window_title()
         self.statusBar().showMessage("Load a video.")
@@ -1087,6 +1106,11 @@ class ShotBoard(QMainWindow):
         self._db.clear_shots()
         self._db.set_frame_count(self._frame_count)
         self._db.add_shot(0)  # Add a single shot covering the whole video
+
+        if SHOT_WIDGET_DEFFERRED_LOADING:
+            ShotWidget.thumbnail_manager.clear()
+            ShotWidget.thumbnail_manager.set_video(self._video_path, self._fps)
+
         self.clear_shot_widgets()
         self.update_grid_layout()
 
@@ -1110,6 +1134,10 @@ class ShotBoard(QMainWindow):
             self._db.clear_shots()
             self.deselect_all()
 
+        if SHOT_WIDGET_DEFFERRED_LOADING:
+            ShotWidget.thumbnail_manager.clear()
+            ShotWidget.thumbnail_manager.add_frame_indexes_to_queue(self._db.get_shots())
+
         self.update_status_bar()
         self.update_window_title()
         self.update_grid_layout()
@@ -1123,6 +1151,7 @@ class ShotBoard(QMainWindow):
         self.update_slider_and_spinbox(frame_index)
 
 
+    @log_function_name(color=PRINT_YELLOW_COLOR)
     def set_mediaplayer_pos_to_spinbox_value(self):
         self.set_mediaplayer_pos_to_mid_frame(self._seek_spinbox.value())
 
@@ -1225,19 +1254,13 @@ class ShotBoard(QMainWindow):
 
         self.enable_ui(False)
 
-        # Get video properties
-        probe = ffmpeg.probe(self._video_path)
-        video_info = next(stream for stream in probe['streams'] if stream['codec_type'] == 'video')
-        frame_width = int(video_info['width'])
-        frame_height = int(video_info['height'])
-
         # Define target width and compute target height while maintaining aspect ratio
         TARGET_WIDTH = self._downscale_spinbox.value()
-        TARGET_HEIGHT = round(frame_height * (TARGET_WIDTH / frame_width))
+        TARGET_HEIGHT = round(self._frame_height * (TARGET_WIDTH / self._frame_width))
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        start_pos = int(start_frame_index) / self._fps  # frame position in seconds
+        start_pos = start_frame_index / self._fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
@@ -1253,7 +1276,7 @@ class ShotBoard(QMainWindow):
             "-nostdin",
             "-"
         ]
-        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
         # Create a progress dialog
         progress_dialog = QProgressDialog("Detecting shots... (time remaining: --:--:--)", "Cancel", start_frame_index, end_frame_index, self)
@@ -1327,6 +1350,8 @@ class ShotBoard(QMainWindow):
                         # Add shot at the previous frame
                         cut_frame_index = frame_index - 1
                         shot_index = self._db.add_shot(cut_frame_index)
+                        if SHOT_WIDGET_DEFFERRED_LOADING:
+                            ShotWidget.thumbnail_manager.add_frame_index_to_queue(cut_frame_index)
                         self._media_player.setPosition(round(self.convert_frame_index_to_qtvid_pos(cut_frame_index)))
 
                 # Shift SSIM values
@@ -1350,7 +1375,6 @@ class ShotBoard(QMainWindow):
 
         # Close FFmpeg process
         process.stdout.close()
-        process.stderr.close()
         process.wait()
         progress_dialog.close()
 

@@ -3,7 +3,7 @@ import numpy as np
 import pyaudio
 from queue import Queue
 import os
-from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QWaitCondition
+from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QMutexLocker, QWaitCondition
 from PyQt5.QtGui import QImage
 
 
@@ -41,49 +41,40 @@ class AudioPlayer(QThread):
 
     def run(self):
         """Starts FFmpeg process for audio and streams it to PyAudio."""
-        ## CRITICAL SECTION ####################
-        self._process_mutex.lock()  # 🔒
-        if not self._running:
-            self._process_mutex.unlock()  # 🔓
-            return
-        # i=-23 → Target integrated loudness (LUFS).
-        # tp=-2 → True peak limit (-2 dB to prevent clipping).
-        # lra=11 → Loudness range adjustment.
-        # measured_I=-self._volume * 23 → Adjust perceived volume dynamically based on self._volume.
-        self._process = (
-            ffmpeg
-            .input(self._video_path, ss=self._start_pos)
-            #.filter('volume', f'{self._volume}')
-            .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
-            #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
-            .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
-            #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
-            #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
-            .run_async(pipe_stdout=True, pipe_stderr=True)
-        )
-        self._process_mutex.unlock()  # 🔓
-        ## END CRITICAL SECTION ################
+        with QMutexLocker(self._process_mutex):  # 🔒
+            if not self._running:
+                return
+            # i=-23 → Target integrated loudness (LUFS).
+            # tp=-2 → True peak limit (-2 dB to prevent clipping).
+            # lra=11 → Loudness range adjustment.
+            # measured_I=-self._volume * 23 → Adjust perceived volume dynamically based on self._volume.
+            self._process = (
+                ffmpeg
+                .input(self._video_path, ss=self._start_pos)
+                #.filter('volume', f'{self._volume}')
+                .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
+                #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
+                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
+                #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
+                #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
+                .run_async(pipe_stdout=True, pipe_stderr=False)
+            )
 
         timer = QElapsedTimer()
         timer.start()
 
         while self._running:
-            ## CRITICAL SECTION ####################
-            self._process_mutex.lock() # 🔒
-            if not self._running or self._process.poll() is not None:
-                self._process_mutex.unlock()  # 🔓
-                break
-            try:
-                audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
-                if not audio_bytes:
-                    raise RuntimeError("Error: No audio data received from FFmpeg.")
-            except (OSError, ValueError) as e:
-                print(f"Error reading audio data: {e}")
-                audio_bytes = None
-                self._process_mutex.unlock()  # 🔓
-                break
-            self._process_mutex.unlock()  # 🔓
-            ## END CRITICAL SECTION ################
+            with QMutexLocker(self._process_mutex):  # 🔒
+                if not self._running or self._process.poll() is not None:
+                    break
+                try:
+                    audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
+                    if not audio_bytes:
+                        raise RuntimeError("Error: No audio data received from FFmpeg.")
+                except (OSError, ValueError) as e:
+                    print(f"Error reading audio data: {e}")
+                    audio_bytes = None
+                    break
 
             try:
                 self._audio_stream.write(audio_bytes)  # Play audio in real-time
@@ -98,19 +89,15 @@ class AudioPlayer(QThread):
 
     def cleanup(self):
         self._running = False
-        ## CRITICAL SECTION ####################
-        self._process_mutex.lock()  # 🔒
-        # if AudioPlayer._audio_stream:
-        #     AudioPlayer._audio_stream.stop_stream()
-        #     AudioPlayer._audio_stream.close()
-        #     AudioPlayer._audio.terminate()
-        if hasattr(self, '_process'):
-            self._process.stdout.close()
-            self._process.stderr.close()
-            self._process.terminate()  # kill
-            self._process.wait()
-        self._process_mutex.unlock()  # 🔓
-        ## END CRITICAL SECTION ################
+        with QMutexLocker(self._process_mutex):  # 🔒
+            # if AudioPlayer._audio_stream:
+            #     AudioPlayer._audio_stream.stop_stream()
+            #     AudioPlayer._audio_stream.close()
+            #     AudioPlayer._audio.terminate()
+            if hasattr(self, '_process'):
+                self._process.stdout.close()
+                self._process.terminate()  # kill
+                self._process.wait()
 
 
     def get_audio_time(self):
@@ -157,92 +144,80 @@ class VideoPlayer(QThread):
             return
 
         assert self._fps > 0
-        start_pos = self._start_frame_index / self._fps
+        START_POS = self._start_frame_index / self._fps
+        FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
         MAX_TIME_DIFF = 1.0 / self._fps
 
         # Start video process (only video)
-        ## CRITICAL SECTION ####################
-        self._process_mutex.lock()  # 🔒
-        if not self._running:
-            self.safe_disconnect()
-            self._process_mutex.unlock()  # 🔓
-            return
-        if self._detect_edges:
-            self._process = (
-                ffmpeg
-                .input(self._video_path, ss=start_pos)
-                .filter('format', 'gray')  # Convert to grayscale
-                #.filter('prewitt', scale=1.5)
-                .filter('sobel', scale=self._edge_factor)  # Edge detection
-                #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
-                .filter('negate')  # Invert colors
-                #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
-                .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
-                .run_async(pipe_stdout=True, pipe_stderr=True)
-            )
-        else:
-            self._process = (
-                ffmpeg
-                .input(self._video_path, ss=start_pos)
-                .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
-                .run_async(pipe_stdout=True, pipe_stderr=True)
-            )
-        self._process_mutex.unlock()  # 🔓
-        ## END CRITICAL SECTION ################
+        with QMutexLocker(self._process_mutex):  # 🔒
+            if not self._running:
+                self.safe_disconnect()
+                return
+            if self._detect_edges:
+                self._process = (
+                    ffmpeg
+                    .input(self._video_path, ss=START_POS)
+                    .filter('format', 'gray')  # Convert to grayscale
+                    #.filter('prewitt', scale=1.5)
+                    .filter('sobel', scale=self._edge_factor)  # Edge detection
+                    #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
+                    .filter('negate')  # Invert colors
+                    #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
+                    .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
+                    .run_async(pipe_stdout=True, pipe_stderr=False)
+                )
+            else:
+                self._process = (
+                    ffmpeg
+                    .input(self._video_path, ss=START_POS)
+                    .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
+                    .run_async(pipe_stdout=True, pipe_stderr=False)
+                )
 
         timer = QElapsedTimer()
         TARGET_TIME = 1000 / self._fps  # Desired frame interval in ms
 
         # Start audio thread
         if self._volume > 0:
-            ## CRITICAL SECTION ####################
-            self._process_mutex.lock()  # 🔒
-            if not self._running:  # In case stop() was called before creating the thread
-                self.safe_disconnect()
-                self._process_mutex.unlock()  # 🔓
-                return
-            self._audio_thread = AudioPlayer(self._video_path, start_pos, self._volume)
-            self._audio_thread.start()
-            self._process_mutex.unlock()  # 🔓
-            ## END CRITICAL SECTION ################
+            with QMutexLocker(self._process_mutex):  # 🔒
+                if not self._running:  # In case stop() was called before creating the thread
+                    self.safe_disconnect()
+                    return
+                self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume)
+                self._audio_thread.start()
 
         frame_index = self._start_frame_index
         while self._running and frame_index < self._end_frame_index:
             timer.start()
             
             # Ensure process isn't stopped before reading
-            ## CRITICAL SECTION ####################
-            self._process_mutex.lock() # 🔒
-            if not self._running or self._process.poll() is not None:
-                self._process_mutex.unlock()  # 🔓
-                break
-            try:
-                video_bytes = self._process.stdout.read(np.prod(self._frame_size))
-                if not video_bytes:
-                    raise RuntimeError("Error: No video data received from FFmpeg.")
-            except (OSError, ValueError) as e:
-                print(f"Error reading video data: {e}")
-                video_bytes = None
-                self._process_mutex.unlock()  # 🔓
-                break
-            self._process_mutex.unlock()  # 🔓
-            ## END CRITICAL SECTION ################
+            with QMutexLocker(self._process_mutex):  # 🔒
+                if not self._running or self._process.poll() is not None:
+                    break
+                try:
+                    video_bytes = self._process.stdout.read(FRAME_BYTES)
+                    if not video_bytes:
+                        raise RuntimeError("Error: No video data received from FFmpeg.")
+                except (OSError, ValueError) as e:
+                    print(f"Error reading video data: {e}")
+                    video_bytes = None
+                    break
 
             if not video_bytes:
                 print("Error: Cannot read frame.")
                 break
 
-            if len(video_bytes) == np.prod(self._frame_size):
+            if len(video_bytes) == FRAME_BYTES:
                 frame = np.frombuffer(video_bytes, np.uint8).reshape(self._frame_size)
                 h, w, ch = frame.shape
                 bytes_per_line = ch * w
-                qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
 
                 if not self._frame_queue.full():
-                    self._frame_queue.put((qimg, frame_index))  # Thread-safe
+                    self._frame_queue.put((image, frame_index))  # Thread-safe
                     self.frame_signal.emit()  # Notify UI to update
             else:
-                print(f"Error: Frame size mismatch. Expected {np.prod(self._frame_size)} bytes, got {len(video_bytes)} bytes.")
+                print(f"Error: Frame size mismatch. Expected {FRAME_BYTES} bytes, got {len(video_bytes)} bytes.")
                 break
 
             frame_index += 1
@@ -280,17 +255,13 @@ class VideoPlayer(QThread):
     def cleanup(self):
         self._running = False
         self.safe_disconnect()
-        ## CRITICAL SECTION ####################
-        self._process_mutex.lock()  # 🔒
-        if self._audio_thread:
-            self._audio_thread.stop()
-        if hasattr(self, '_process'):
-            self._process.stdout.close()
-            self._process.stderr.close()
-            self._process.terminate()  # kill
-            self._process.wait()
-        self._process_mutex.unlock()  # 🔓
-        ## END CRITICAL SECTION ################
+        with QMutexLocker(self._process_mutex):  # 🔒
+            if self._audio_thread:
+                self._audio_thread.stop()
+            if hasattr(self, '_process'):
+                self._process.stdout.close()
+                self._process.terminate()  # kill
+                self._process.wait()
 
 
     def _get_frame_size(self):
