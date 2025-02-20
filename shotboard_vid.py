@@ -20,7 +20,7 @@ class AudioPlayer(QThread):
     _audio = None
     _audio_stream = None
 
-    def __init__(self, video_path, start_pos, volume, parent=None):
+    def __init__(self, video_path, start_pos, volume, speed, parent=None):
         super().__init__(parent)
 
         if AudioPlayer._audio is None:
@@ -32,11 +32,17 @@ class AudioPlayer(QThread):
 
         self._video_path = video_path
         self._start_pos = start_pos
-        self._volume = max(0.0, min(1.0, volume))  # Ensure valid range
+        self._volume = volume
+        self._speed = speed
 
         self._running = True
-        self._process_mutex = QMutex()  # Add a mutex for process safety
+        self._paused = False
+        self._process_mutex = QMutex()
+        self._pause_mutex = QMutex()
+        self._pause_condition = QWaitCondition()
+
         self.elapsed_time = 0  # Keep track of playback time
+        self._pause_duration = 0
 
 
     def run(self):
@@ -54,6 +60,7 @@ class AudioPlayer(QThread):
                 #.filter('volume', f'{self._volume}')
                 .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
                 #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
+                .filter('atempo', self._speed)
                 .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
                 #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
                 #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
@@ -64,6 +71,12 @@ class AudioPlayer(QThread):
         timer.start()
 
         while self._running:
+            with QMutexLocker(self._pause_mutex):  # 🔒
+                if self._paused:
+                    pause_time = timer.elapsed()
+                    self._pause_condition.wait(self._pause_mutex)
+                    self._pause_duration += timer.elapsed() - pause_time
+
             with QMutexLocker(self._process_mutex):  # 🔒
                 if not self._running or self._process.poll() is not None:
                     break
@@ -82,7 +95,7 @@ class AudioPlayer(QThread):
                 print(f"Error playing audio data: {e}")
                 break
 
-            self.elapsed_time = timer.elapsed() * 0.001  # Convert to seconds
+            self.elapsed_time = (timer.elapsed() - self._pause_duration) * 0.001  # Adjust for pause and convert to seconds
 
         self.cleanup()
 
@@ -103,10 +116,30 @@ class AudioPlayer(QThread):
     def get_audio_time(self):
         """Returns the elapsed playback time in seconds."""
         return self.elapsed_time
-    
+
+
+    def pause(self):
+        """Pauses audio playback."""
+        with QMutexLocker(self._pause_mutex):
+            self._paused = True
+
+
+    def resume(self):
+        """Resumes audio playback."""
+        with QMutexLocker(self._pause_mutex):
+            self._paused = False
+            self._pause_condition.wakeAll()  # Resume the thread
+
 
     def stop(self):
-        """Stops audio playback cleanly."""
+        """Stops audio playback."""
+        with QMutexLocker(self._process_mutex):
+            self._running = False
+
+        with QMutexLocker(self._pause_mutex):
+            self._paused = False
+            self._pause_condition.wakeAll()
+
         self.cleanup()
         self.wait()
 
@@ -119,21 +152,26 @@ class AudioPlayer(QThread):
 class VideoPlayer(QThread):
     frame_signal = pyqtSignal()  # Signal to send frames to the UI
 
-    def __init__(self, video_path, fps, start_frame_index, end_frame_index, volume, detect_edges, edge_factor, parent=None):
+    def __init__(self, video_path, fps, start_frame_index, end_frame_index, volume, speed, detect_edges, edge_factor, parent=None):
         super().__init__(parent)
         self._video_path = video_path
         self._fps = fps
         self._start_frame_index = start_frame_index
         self._end_frame_index = end_frame_index
-        self._volume = volume
+        self._volume = max(0.0, min(1.0, volume))  # Ensure valid range
+        self._speed = max(0.5, min(2.0, speed))  # Limit to [0.5x, 2.0x]
         self._detect_edges = detect_edges
         self._edge_factor = edge_factor
-        
+
         self._audio_thread = None  # Store reference to audio thread
         self._running = True
-        self._process_mutex = QMutex()  # Add a mutex for process safety
+        self._paused = False
+        self._process_mutex = QMutex()
+        self._pause_mutex = QMutex()
+        self._pause_condition = QWaitCondition()
 
         self._frame_queue = Queue(maxsize=5)  # Thread-safe queue
+
         frame_width, frame_height = self._get_frame_size()
         self._frame_size = (frame_height, frame_width, 3)
 
@@ -163,6 +201,7 @@ class VideoPlayer(QThread):
                     #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
                     .filter('negate')  # Invert colors
                     #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
+                    .filter('setpts', f'PTS/{self._speed}')
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
@@ -170,6 +209,7 @@ class VideoPlayer(QThread):
                 self._process = (
                     ffmpeg
                     .input(self._video_path, ss=START_POS)
+                    .filter('setpts', f'PTS/{self._speed}')
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
@@ -183,13 +223,19 @@ class VideoPlayer(QThread):
                 if not self._running:  # In case stop() was called before creating the thread
                     self.safe_disconnect()
                     return
-                self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume)
+                self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume, self._speed)
                 self._audio_thread.start()
 
         frame_index = self._start_frame_index
         while self._running and frame_index < self._end_frame_index:
             timer.start()
+            pause_duration = 0
             
+            with QMutexLocker(self._pause_mutex):  # 🔒
+                if self._paused:
+                    self._pause_condition.wait(self._pause_mutex)  # Wait until resumed
+                    pause_duration = timer.elapsed()
+
             # Ensure process isn't stopped before reading
             with QMutexLocker(self._process_mutex):  # 🔒
                 if not self._running or self._process.poll() is not None:
@@ -233,7 +279,7 @@ class VideoPlayer(QThread):
                         frame_index += 1  # Drop this frame and move to the next
                     continue
 
-                remaining_time = TARGET_TIME - timer.elapsed()  # in ms
+                remaining_time = TARGET_TIME - (timer.elapsed() - pause_duration) # in ms
 
                 if time_diff > MAX_TIME_DIFF:  # Video is ahead → slow it down
                     remaining_time += time_diff * 1000
@@ -270,12 +316,41 @@ class VideoPlayer(QThread):
         width = int(video_info['width'])
         height = int(video_info['height'])
         return width, height
-    
+
+
+    def pause(self):
+        """Pauses video playback."""
+        with QMutexLocker(self._pause_mutex):
+            self._paused = True
+
+        if self._audio_thread:
+            self._audio_thread.pause()
+
+
+    def resume(self):
+        """Resumes video playback."""
+        with QMutexLocker(self._pause_mutex):
+            self._paused = False
+            self._pause_condition.wakeAll()
+
+        if self._audio_thread:
+            self._audio_thread.resume()
+
 
     def stop(self):
+        """Stops video playback."""
+        with QMutexLocker(self._process_mutex):
+            self._running = False
+
+        with QMutexLocker(self._pause_mutex):
+            self._paused = False
+            self._pause_condition.wakeAll()
+
+        if self._audio_thread:
+            self._audio_thread.stop()
+
         self.cleanup()
         self.wait()
-
 
 if __name__ == "__main__":
     print(f"\033[91mTHIS MODULE FILE IS NOT MEANT TO BE RUN!\033[0m")

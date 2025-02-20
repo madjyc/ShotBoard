@@ -316,6 +316,7 @@ class ShotWidget(QFrame):
 
     # Shared data
     volume = 0
+    speed = 1.0
     detect_edges = False
     edge_factor = 1.0
 
@@ -431,7 +432,7 @@ class ShotWidget(QFrame):
             elif event.type() == QEvent.Leave:
                 self.on_image_label_leave()
         return super().eventFilter(source, event)
- 
+
 
     def mouseMoveEvent(self, event):
         """Show the cursor and restart the timer when the mouse moves."""
@@ -484,7 +485,7 @@ class ShotWidget(QFrame):
 
     def on_image_label_enter(self):
         self.cursor_timer.start()  # Start tracking inactivity
-        self.videoplayer = VideoPlayer(self.video_path, self.fps, self.start_frame_index, self.end_frame_index, ShotWidget.volume, ShotWidget.detect_edges, ShotWidget.edge_factor)
+        self.videoplayer = VideoPlayer(self.video_path, self.fps, self.start_frame_index, self.end_frame_index, ShotWidget.volume, ShotWidget.speed, ShotWidget.detect_edges, ShotWidget.edge_factor)
         if self.videoplayer:
             self.videoplayer.frame_signal.connect(self.on_frame_loaded)
             self.videoplayer.start()  # Start the video rendering thread

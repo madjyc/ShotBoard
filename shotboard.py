@@ -35,7 +35,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.13"
+APP_VERSION = "0.6.14"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -470,6 +470,11 @@ class ShotBoard(QMainWindow):
         self._scan_button.setStyleSheet(f"background-color: {SHOT_WIDGET_RESCAN_COLOR};")
         self._scan_button.setStatusTip("Scan (or re-scan) the selected shots using the current similarity tolerance value.")
 
+        # Create a double condition checkbox with a label
+        self._double_condition_checkbox = QCheckBox("Double")  
+        self._double_condition_checkbox.setChecked(True)
+        self._double_condition_checkbox.setStatusTip("Check to detect two consecutive differences in similarity (i.e. V-shaped).")
+
         # Create a plot checkbox with a label
         self._plot_checkbox = QCheckBox("Monitor")  
         self._plot_checkbox.setChecked(False)
@@ -498,6 +503,7 @@ class ShotBoard(QMainWindow):
         detection_layout = QHBoxLayout()
         detection_layout.addStretch()  # Add stretch to push elements to the right
         detection_layout.addWidget(self._scan_button)
+        detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._plot_checkbox)
         detection_layout.addWidget(self._detection_slider)
         detection_layout.addWidget(self._detection_label)
@@ -1344,9 +1350,13 @@ class ShotBoard(QMainWindow):
 
                 # Ensure we have 3 SSIM values before making a decision
                 if prev_ssim is not None and prev_prev_ssim is not None:
-                    # Detect a spike (sudden drop followed by rise)
-                    if ((prev_prev_ssim - prev_ssim >= ssim_drop_threshold and current_ssim - prev_ssim >= ssim_drop_threshold) or
-                        (prev_prev_ssim - prev_ssim >= MAX_SSIM_DROP_THRESHOLD and  current_ssim - prev_ssim >= MIN_SSIM_DROP_THRESHOLD)):
+                    # Detect a sudden drop '\' in similarity
+                    simple_condition = prev_prev_ssim - prev_ssim >= ssim_drop_threshold
+                    # Detect a 'V' spike (sudden drop followed by a rise) in similarity
+                    double_condition = ((prev_prev_ssim - prev_ssim >= MAX_SSIM_DROP_THRESHOLD and current_ssim - prev_ssim >= ssim_drop_threshold) or
+                                        (prev_prev_ssim - prev_ssim >= ssim_drop_threshold and current_ssim - prev_ssim >= MAX_SSIM_DROP_THRESHOLD))
+                    condition = double_condition if self._double_condition_checkbox.isChecked() else simple_condition
+                    if condition:
                         # Add shot at the previous frame
                         cut_frame_index = frame_index - 1
                         shot_index = self._db.add_shot(cut_frame_index)
