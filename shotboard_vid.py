@@ -60,7 +60,7 @@ class AudioPlayer(QThread):
                 #.filter('volume', f'{self._volume}')
                 .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
                 #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
-                .filter('atempo', self._speed)
+                # .filter('atempo', self._speed)  # DO NOT USE AS LONG AS VIDEO FILTER SETPTS DOOESN'T WORK PROPERLY
                 .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
                 #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
                 #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
@@ -201,7 +201,7 @@ class VideoPlayer(QThread):
                     #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
                     .filter('negate')  # Invert colors
                     #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
-                    .filter('setpts', f'PTS/{self._speed}')
+                    # .filter('setpts', f'PTS/{self._speed}')  # DO NOT USE, SYNC ISSUE
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
@@ -209,7 +209,7 @@ class VideoPlayer(QThread):
                 self._process = (
                     ffmpeg
                     .input(self._video_path, ss=START_POS)
-                    .filter('setpts', f'PTS/{self._speed}')
+                    # .filter('setpts', f'PTS/{self._speed}')  # DO NOT USE, SYNC ISSUE
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
@@ -236,35 +236,21 @@ class VideoPlayer(QThread):
                     self._pause_condition.wait(self._pause_mutex)  # Wait until resumed
                     pause_duration = timer.elapsed()
 
-            # Ensure process isn't stopped before reading
-            with QMutexLocker(self._process_mutex):  # 🔒
-                if not self._running or self._process.poll() is not None:
-                    break
-                try:
-                    video_bytes = self._process.stdout.read(FRAME_BYTES)
-                    if not video_bytes:
-                        raise RuntimeError("Error: No video data received from FFmpeg.")
-                except (OSError, ValueError) as e:
-                    print(f"Error reading video data: {e}")
-                    video_bytes = None
-                    break
-
+            # Ensures process isn't stopped before reading
+            video_bytes = self.read_one_frame(FRAME_BYTES)
             if not video_bytes:
-                print("Error: Cannot read frame.")
                 break
 
-            if len(video_bytes) == FRAME_BYTES:
-                frame = np.frombuffer(video_bytes, np.uint8).reshape(self._frame_size)
-                h, w, ch = frame.shape
-                bytes_per_line = ch * w
-                image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            frame = np.frombuffer(video_bytes, np.uint8).reshape(self._frame_size)
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            image = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
 
-                if not self._frame_queue.full():
-                    self._frame_queue.put((image, frame_index))  # Thread-safe
-                    self.frame_signal.emit()  # Notify UI to update
+            if not self._frame_queue.full():
+                self._frame_queue.put((frame_index, image))  # Thread-safe
+                self.frame_signal.emit()  # Notify UI to update
             else:
-                print(f"Error: Frame size mismatch. Expected {FRAME_BYTES} bytes, got {len(video_bytes)} bytes.")
-                break
+                print(f"Image queue full: Dropping frame {frame_index}.")
 
             frame_index += 1
 
@@ -276,6 +262,10 @@ class VideoPlayer(QThread):
 
                 if time_diff < -MAX_TIME_DIFF:  # Video is behind → drop a frame
                     if frame_index + 1 < self._end_frame_index:  # Last frame should always be displayed
+                        video_bytes = self.read_one_frame(FRAME_BYTES)
+                        if not video_bytes:
+                            break
+                        print(f"Dropped frame {frame_index}")
                         frame_index += 1  # Drop this frame and move to the next
                     continue
 
@@ -289,6 +279,27 @@ class VideoPlayer(QThread):
                     self.msleep(remaining_time)  # in ms
 
         self.cleanup()
+
+
+    def read_one_frame(self, frame_bytes):
+        with QMutexLocker(self._process_mutex):  # 🔒
+            if not self._running or self._process.poll() is not None:
+                print("Error: Cannot read frame.")
+                return None
+            
+            try:
+                video_bytes = self._process.stdout.read(frame_bytes)
+                if not video_bytes:
+                    raise RuntimeError("Error: No video data received from FFmpeg.")
+            except (OSError, ValueError) as e:
+                print(f"Error reading video data: {e}")
+                return None
+
+        if len(video_bytes) != frame_bytes:
+            print(f"Error: Frame size mismatch. Expected {frame_bytes} bytes, got {len(video_bytes)} bytes.")
+            return None
+
+        return video_bytes
 
 
     def safe_disconnect(self):

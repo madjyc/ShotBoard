@@ -12,6 +12,7 @@
 from shotboard_db import *
 from shotboard_ui import *
 from shotboard_cmd import *
+from shotboard_med import *
 
 import ffmpeg
 import cv2
@@ -35,7 +36,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 
-APP_VERSION = "0.6.14"
+APP_VERSION = "0.6.15"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -392,19 +393,27 @@ class ShotBoard(QMainWindow):
         margins = top_layout.contentsMargins()
         top_layout.setContentsMargins(0, margins.top(), 0, margins.bottom())
 
+        mediaplayer_layout = QHBoxLayout()
+        top_layout.addLayout(mediaplayer_layout)
+
         # Create a media player object
         self._media_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         #self._media_player.positionChanged.connect(self.on_mediaplayer_position_changed)
         #self._media_player.durationChanged.connect(self.on_mediaplayer_duration_changed)
-        self._media_player.stateChanged.connect(self.on_mediaplayer_state_changed)
-        self._media_player.error.connect(self.on_media_player_error)
+        self._media_player.stateChanged.connect(self.on_qmediaplayer_state_changed)
+        self._media_player.error.connect(self.on_qmediaplayer_error)
 
         # Create a video widget for displaying video output
         self._video_widget = QVideoWidget()
         self._video_widget.setStyleSheet(f"background-color: {VIDEO_BACKGROUND_COLOR};")
         self._media_player.setVideoOutput(self._video_widget)
         self._video_widget.mousePressEvent = self.on_video_clicked
-        top_layout.addWidget(self._video_widget)
+        mediaplayer_layout.addWidget(self._video_widget)
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer = SBMediaPlayer()
+            self._mediaplayer.stateChanged.connect(self.on_mediaplayer_state_changed)
+            mediaplayer_layout.addWidget(self._mediaplayer)
 
         # Create a horizontal layout for the slider
         slider_layout = QHBoxLayout()
@@ -598,7 +607,7 @@ class ShotBoard(QMainWindow):
     def on_menu_open_video(self):
         file_dialog = QFileDialog()
         file_dialog.setAcceptMode(QFileDialog.AcceptOpen)
-        file_dialog.setNameFilter("Video files (*.mp4 *.avi)")
+        file_dialog.setNameFilter("Video files (*.mp4 *.avi *.mkv)")
         if file_dialog.exec_() == QFileDialog.Accepted:
             url = file_dialog.selectedUrls()[0]
             self.set_video(url)
@@ -741,6 +750,15 @@ class ShotBoard(QMainWindow):
             self.pause_video()
         elif player_state == QMediaPlayer.PausedState:
             self.resume_video()
+        
+        if USE_SBMEDIAPLAYER:
+            player_state = self._mediaplayer.get_state()
+            if player_state == SBMediaPlayer.StoppedState:
+                self.play_video()
+            elif player_state == SBMediaPlayer.PlayingState:
+                self.pause_video()
+            elif player_state == SBMediaPlayer.PausedState:
+                self.resume_video()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -820,15 +838,24 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name()
-    def on_mediaplayer_state_changed(self, state):
+    def on_qmediaplayer_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
             self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         else:
             self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
 
 
+    @log_function_name()
+    def on_mediaplayer_state_changed(self, state):
+        pass
+        # if state == SBMediaPlayer.PlayingState:
+        #     self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        # else:
+        #     self._play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+
+
     @log_function_name(color=PRINT_RED_COLOR)
-    def on_media_player_error(self):
+    def on_qmediaplayer_error(self):
         print(f"{PRINT_RED_COLOR}{self._media_player.errorString()}{PRINT_DEFAULT_COLOR}")
 
 
@@ -1103,10 +1130,14 @@ class ShotBoard(QMainWindow):
         media_content = QMediaContent(url)
         self._media_player.setMedia(media_content)  # /!\ asynchronous
         #self._media_player.setNotifyInterval(int(1/self._fps))
-        self._seek_slider.setRange(0, self._frame_count - 1)
-        self._seek_spinbox.setRange(0, self._frame_count - 1)
         self._media_player.setVolume(self._volume_slider.value())
         self._media_player.pause()
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer.set_video(self._video_path, self._fps, self._frame_count)
+
+        self._seek_slider.setRange(0, self._frame_count - 1)
+        self._seek_spinbox.setRange(0, self._frame_count - 1)
 
         self._history.clear()
         self._db.clear_shots()
@@ -1144,7 +1175,7 @@ class ShotBoard(QMainWindow):
             ShotWidget.thumbnail_manager.clear()
             ShotWidget.thumbnail_manager.add_frame_indexes_to_queue(self._db.get_shots())
 
-        self.update_status_bar()
+        self.update_status_bar()  # Display info right away as update_grid_layout() might take a long time to execute
         self.update_window_title()
         self.update_grid_layout()
         self.enable_ui(True)
@@ -1186,6 +1217,10 @@ class ShotBoard(QMainWindow):
             self.pause_video()
 
         self._media_player.play()
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer.play()
+
         self.start_update_timer()
 
 
@@ -1196,6 +1231,10 @@ class ShotBoard(QMainWindow):
             return
         
         self._media_player.pause()
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer.pause()
+
         self.stop_update_timer()
 
 
@@ -1206,6 +1245,10 @@ class ShotBoard(QMainWindow):
             return
         
         self._media_player.play()
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer.resume()
+
         self.start_update_timer()
 
 
@@ -1216,6 +1259,10 @@ class ShotBoard(QMainWindow):
             return
         
         self._media_player.stop()
+
+        if USE_SBMEDIAPLAYER:
+            self._mediaplayer.stop()
+
         self.stop_update_timer()
 
 
@@ -1399,6 +1446,7 @@ class ShotBoard(QMainWindow):
             plt.show()  # Show final graph
 
         # Update the grid layout
+        self.update_status_bar()  # Display info right away as update_grid_layout() might take a long time to execute
         self.update_grid_layout()
         self.enable_ui(True)
         return True

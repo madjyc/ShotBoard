@@ -503,7 +503,7 @@ class ShotWidget(QFrame):
         assert self.videoplayer
         if not self.videoplayer._frame_queue.empty():
             try:
-                image, frame_index = self.videoplayer._frame_queue.get()  # Thread-safe
+                frame_index, image = self.videoplayer._frame_queue.get()  # Thread-safe
                 #print(f"Start updating frame {frame_index}")
                 self.update_frame_from_image(frame_index, image)
             except queue.Empty:
