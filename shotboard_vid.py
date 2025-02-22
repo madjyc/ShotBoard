@@ -40,9 +40,8 @@ class AudioPlayer(QThread):
         self._process_mutex = QMutex()
         self._pause_mutex = QMutex()
         self._pause_condition = QWaitCondition()
-
-        self.elapsed_time = 0  # Keep track of playback time
         self._pause_duration = 0
+        self._audio_timer = QElapsedTimer()
 
 
     def run(self):
@@ -57,25 +56,24 @@ class AudioPlayer(QThread):
             self._process = (
                 ffmpeg
                 .input(self._video_path, ss=self._start_pos)
-                #.filter('volume', f'{self._volume}')
-                .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
-                #.filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
-                # .filter('atempo', self._speed)  # DO NOT USE AS LONG AS VIDEO FILTER SETPTS DOOESN'T WORK PROPERLY
+                .filter('volume', f'{self._volume}', enable='between(t,0,99999)')  # Enable commands
+                # .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
+                #    .filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
+                #    .filter('atempo', self._speed)  # DO NOT USE AS LONG AS VIDEO FILTER SETPTS DOOESN'T WORK PROPERLY
                 .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
-                #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
-                #.output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
-                .run_async(pipe_stdout=True, pipe_stderr=False)
+                #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
+                #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
+                .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=False)
             )
 
-        timer = QElapsedTimer()
-        timer.start()
+        self._audio_timer.start()
 
         while self._running:
             with QMutexLocker(self._pause_mutex):  # 🔒
                 if self._paused:
-                    pause_time = timer.elapsed()
+                    pause_time = self._audio_timer.elapsed()
                     self._pause_condition.wait(self._pause_mutex)
-                    self._pause_duration += timer.elapsed() - pause_time
+                    self._pause_duration += self._audio_timer.elapsed() - pause_time
 
             with QMutexLocker(self._process_mutex):  # 🔒
                 if not self._running or self._process.poll() is not None:
@@ -95,8 +93,6 @@ class AudioPlayer(QThread):
                 print(f"Error playing audio data: {e}")
                 break
 
-            self.elapsed_time = (timer.elapsed() - self._pause_duration) * 0.001  # Adjust for pause and convert to seconds
-
         self.cleanup()
 
 
@@ -108,14 +104,30 @@ class AudioPlayer(QThread):
             #     AudioPlayer._audio_stream.close()
             #     AudioPlayer._audio.terminate()
             if hasattr(self, '_process'):
+                self._process.stdin.close()
                 self._process.stdout.close()
+                # self._process.stderr.close()
                 self._process.terminate()  # kill
                 self._process.wait()
 
 
-    def get_audio_time(self):
-        """Returns the elapsed playback time in seconds."""
-        return self.elapsed_time
+    # /!\ DOESN'T WORK YET
+    def set_volume(self, volume):
+        """Dynamically change FFmpeg audio volume."""
+        self._volume = max(0.0, min(2.0, volume))  # Limit volume between 0% and 200%
+        if self._process and self._process.stdin:
+            cmd = f"volume {self._volume}\n"  # Send FFmpeg command
+            try:
+                self._process.stdin.write(cmd.encode())
+                self._process.stdin.flush()
+            except (OSError, BrokenPipeError) as e:
+                print(f"Error sending volume command to FFmpeg: {e}")
+
+
+    def get_elapsed_time(self):
+        """Returns the elapsed playback time in seconds since the beginning of the audio stream rendition."""
+        elapsed_time = (self._audio_timer.elapsed() - self._pause_duration) * 0.001  # Adjust for pause and convert to seconds
+        return elapsed_time
 
 
     def pause(self):
@@ -172,7 +184,7 @@ class VideoPlayer(QThread):
 
         self._frame_queue = Queue(maxsize=5)  # Thread-safe queue
 
-        frame_width, frame_height = self._get_frame_size()
+        frame_width, frame_height = self.get_frame_size()
         self._frame_size = (frame_height, frame_width, 3)
 
 
@@ -184,7 +196,7 @@ class VideoPlayer(QThread):
         assert self._fps > 0
         START_POS = self._start_frame_index / self._fps
         FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
-        MAX_TIME_DIFF = 1.0 / self._fps
+        MAX_TIME_DIFF = 1 / self._fps  # 1 frame in seconds
 
         # Start video process (only video)
         with QMutexLocker(self._process_mutex):  # 🔒
@@ -257,7 +269,7 @@ class VideoPlayer(QThread):
             # Compare video time with audio time
             if self._running:
                 video_time = (frame_index - self._start_frame_index) / self._fps  # Expected video time in seconds
-                audio_time = self._audio_thread.get_audio_time() if self._audio_thread else video_time
+                audio_time = self._audio_thread.get_elapsed_time() if self._audio_thread else video_time
                 time_diff = video_time - audio_time  # in s
 
                 if time_diff < -MAX_TIME_DIFF:  # Video is behind → drop a frame
@@ -274,7 +286,7 @@ class VideoPlayer(QThread):
                 if time_diff > MAX_TIME_DIFF:  # Video is ahead → slow it down
                     remaining_time += time_diff * 1000
 
-                remaining_time = int(max(0, min(remaining_time, TARGET_TIME * 2)))  # clamp to [0, 2 * TARGET_TIME]
+                remaining_time = int(max(0, min(TARGET_TIME * 2, remaining_time)))  # clamp to [0, 2 * TARGET_TIME] -> max 2 frames
                 if remaining_time > 0:
                     self.msleep(remaining_time)  # in ms
 
@@ -317,16 +329,23 @@ class VideoPlayer(QThread):
                 self._audio_thread.stop()
             if hasattr(self, '_process'):
                 self._process.stdout.close()
+                # self._process.stderr.close()
                 self._process.terminate()  # kill
                 self._process.wait()
 
 
-    def _get_frame_size(self):
+    def get_frame_size(self):
         probe = ffmpeg.probe(self._video_path)
         video_info = next(stream for stream in probe['streams'] if stream['codec_type'] == 'video')
         width = int(video_info['width'])
         height = int(video_info['height'])
         return width, height
+
+
+    def set_volume(self, volume):
+        """Dynamically change FFmpeg audio volume."""
+        if self._audio_thread:
+            self._audio_thread.set_volume(volume)
 
 
     def pause(self):
@@ -362,6 +381,7 @@ class VideoPlayer(QThread):
 
         self.cleanup()
         self.wait()
+
 
 if __name__ == "__main__":
     print(f"\033[91mTHIS MODULE FILE IS NOT MEANT TO BE RUN!\033[0m")

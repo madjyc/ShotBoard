@@ -11,9 +11,6 @@ from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
 
 
-USE_SBMEDIAPLAYER = False
-
-
 ##
 ## MEDIA PLAYER
 ##
@@ -24,6 +21,7 @@ class SBMediaPlayer(QLabel):
         StoppedState = auto()
         PlayingState = auto()
         PausedState = auto()
+    # Helpers
     StoppedState = State.StoppedState
     PlayingState = State.PlayingState
     PausedState = State.PausedState
@@ -31,6 +29,7 @@ class SBMediaPlayer(QLabel):
     # Signals
     clicked = pyqtSignal(bool)  # Signal includes a boolean to indicate Shift key status
     stateChanged = pyqtSignal(State)
+    frameChanged = pyqtSignal(int)
 
     # Shared data
     volume = 0
@@ -46,8 +45,8 @@ class SBMediaPlayer(QLabel):
 
         self.video_path = None
         self.fps = 0
-        self.start_frame_index = 0
-        self.end_frame_index = 0  # excluded (i.e. next frame's start_frame_index)
+        self.frame_index = 0
+        self.end_frame_index = 0  # excluded
 
         # self.setFixedSize(SHOT_WIDGET_WIDTH, SHOT_WIDGET_HEIGHT)  #  256 x 148 px
         # self.setFrameStyle(QFrame.Box)
@@ -56,12 +55,36 @@ class SBMediaPlayer(QLabel):
         self.setStyleSheet("background-color: black;")  # black, darkCyan
 
 
+    def reset_frame(self):
+        pixmap = QPixmap(self.size())
+        pixmap.fill(Qt.black)
+        self.setPixmap(pixmap)        
+
+
+    def set_volume(self, volume):
+        SBMediaPlayer.volume = volume
+        if self.videoplayer:
+            self.videoplayer.set_volume(volume)
+
+
+    def is_ready(self):
+        if not self.video_path:
+            print(f"Error: No video file loaded.")
+            return False
+        
+        if not os.path.isfile(self.video_path):
+            print(f"Error: File {self.video_path} does not exist.")
+            return False
+        
+        return True
+
+
     def set_video(self, video_path, fps, frame_count):
         self.video_path = video_path
         self.fps = fps
-        self.start_frame_index = 0
+        self.frame_index = 0
         self.end_frame_index = frame_count
-        self.set_frame(0)
+        self.seek(0)
 
 
     def set_state(self, state):
@@ -69,7 +92,7 @@ class SBMediaPlayer(QLabel):
             if self.state != state:
                 self.state = state
                 self.stateChanged.emit(state)
-                print(f"State changed to: {self.state.name} ({self.state.value})")
+                # print(f"State changed to: {self.state.name} ({self.state.value})")
         else:
             raise ValueError("Invalid state")
 
@@ -84,41 +107,85 @@ class SBMediaPlayer(QLabel):
             self.clicked.emit(bool(shift_pressed))
 
 
-    def play(self):
-        if not os.path.isfile(self.video_path):
-            print(f"Error: File {self.video_path} does not exist.")
+    def get_frame_index(self):
+        return self.frame_index
+
+
+    def seek(self, frame_index):
+        if not self.is_ready():
             return
 
-        self.videoplayer = VideoPlayer(self.video_path, self.fps, self.start_frame_index, self.end_frame_index, SBMediaPlayer.volume, SBMediaPlayer.speed, SBMediaPlayer.detect_edges, SBMediaPlayer.edge_factor)
-        if self.videoplayer:
-            self.videoplayer.frame_signal.connect(self.on_frame_loaded)
-            self.videoplayer.start()  # Start the video rendering thread
-            self.set_state(self.PlayingState)
+        # If playing, start playing again from new frame
+        if self.state == self.PlayingState:
+            self.play(frame_index)
+        else: 
+            self.set_still_frame(frame_index)
 
 
-    def pause(self):
-        if self.videoplayer:
-            self.videoplayer.pause()
-            self.set_state(self.PausedState)
+    def play(self, start_frame_index=0):
+        if not self.is_ready():
+            return
 
-
-    def resume(self):
-        if self.videoplayer:
-            self.videoplayer.resume()
-            self.set_state(self.PlayingState)
-
-
-    def stop(self):
         if self.videoplayer:
             self.videoplayer.stop()
             self.videoplayer = None
-            self.set_state(self.StoppedState)
+
+        self.videoplayer = VideoPlayer(self.video_path, self.fps, start_frame_index, self.end_frame_index, SBMediaPlayer.volume, SBMediaPlayer.speed, SBMediaPlayer.detect_edges, SBMediaPlayer.edge_factor)
+        if self.videoplayer:
+            self.videoplayer.frame_signal.connect(self.on_frame_loaded)
+            self.videoplayer.start()  # Start the video rendering thread
+        
+        self.set_state(self.PlayingState)
 
 
-    def set_frame(self, frame_index):
-        if not os.path.isfile(self.video_path):
-            print(f"Error: File {self.video_path} does not exist.")
+    def pause(self):
+        if not self.is_ready():
             return
+
+        if self.videoplayer and self.state == self.PlayingState:
+            self.videoplayer.pause()
+        
+        self.set_state(self.PausedState)
+
+
+    def resume(self):
+        if not self.is_ready():
+            return
+
+        if self.videoplayer:
+            if self.state == self.PausedState:
+                if self.frame_index + 1 < self.end_frame_index:
+                    self.videoplayer.resume()
+                else:
+                    self.videoplayer.play()
+        else:
+            self.play(self.frame_index)
+        
+        self.set_state(self.PlayingState)
+
+
+    def stop(self, reset=True):
+        if not self.is_ready():
+            return
+
+        if self.videoplayer:
+            self.videoplayer.stop()
+            self.videoplayer = None
+
+        self.set_state(self.StoppedState)
+        if reset:
+            self.reset_frame()
+            self.frame_index = 0
+            self.frameChanged.emit(0)
+
+
+    def set_still_frame(self, frame_index):
+        if not self.is_ready():
+            return
+
+        if self.videoplayer:
+            self.videoplayer.stop()
+            self.videoplayer = None
 
         START_POS = frame_index / self.fps  # no offset for FFmpeg
 
@@ -147,7 +214,10 @@ class SBMediaPlayer(QLabel):
             return
 
         # Update the image label
-        self.update_frame_from_image(self.start_frame_index, image)
+        self.update_frame_from_image(frame_index, image)
+        self.frame_index = frame_index
+        self.frameChanged.emit(frame_index)
+        self.set_state(self.PausedState)
 
 
     def on_frame_loaded(self):
@@ -155,8 +225,10 @@ class SBMediaPlayer(QLabel):
         if not self.videoplayer._frame_queue.empty():
             try:
                 frame_index, image = self.videoplayer._frame_queue.get()  # Thread-safe
-                #print(f"Start updating frame {frame_index}")
+                #print(f"Start updating frame {self.frame_index}")
                 self.update_frame_from_image(frame_index, image)
+                if frame_index + 1 >= self.end_frame_index:
+                    self.stop(False)
             except queue.Empty:
                 print("Warning: Frame queue is empty. Skipping frame.")
                 return
@@ -178,8 +250,14 @@ class SBMediaPlayer(QLabel):
         )
         self.setPixmap(scaled_pixmap)
 
+        self.frame_index = frame_index
+        self.frameChanged.emit(frame_index)
+
 
     def closeEvent(self, event):
+        if self.videoplayer:
+            self.videoplayer.stop()
+            self.videoplayer = None
         event.accept()
 
 
@@ -187,6 +265,7 @@ class SBMediaPlayer(QLabel):
         """ Ensure the VideoPlayer is stopped when the object is deleted """
         if self.videoplayer:
             self.videoplayer.stop()
+            self.videoplayer = None
 
 
 if __name__ == "__main__":
