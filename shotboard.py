@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"

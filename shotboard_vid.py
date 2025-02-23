@@ -40,8 +40,8 @@ class AudioPlayer(QThread):
         self._process_mutex = QMutex()
         self._pause_mutex = QMutex()
         self._pause_condition = QWaitCondition()
-        self._pause_duration = 0
-        self._audio_timer = QElapsedTimer()
+        self._pause_duration_ms = 0
+        self._master_clock_timer = QElapsedTimer()
 
 
     def run(self):
@@ -60,25 +60,26 @@ class AudioPlayer(QThread):
                 # .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
                 #    .filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
                 #    .filter('atempo', self._speed)  # DO NOT USE AS LONG AS VIDEO FILTER SETPTS DOOESN'T WORK PROPERLY
-                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
+                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)#, filter_complex='asetpts=N/SR/TB')
                 #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
                 #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
                 .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=False)
             )
 
-        self._audio_timer.start()
+        self._master_clock_timer.start()
 
         while self._running:
             with QMutexLocker(self._pause_mutex):  # 🔒
                 if self._paused:
-                    pause_time = self._audio_timer.elapsed()
+                    pause_time_ms = self._master_clock_timer.elapsed()
                     self._pause_condition.wait(self._pause_mutex)
-                    self._pause_duration += self._audio_timer.elapsed() - pause_time
+                    self._pause_duration_ms += self._master_clock_timer.elapsed() - pause_time_ms
 
             with QMutexLocker(self._process_mutex):  # 🔒
                 if not self._running or self._process.poll() is not None:
                     break
                 try:
+                    # audio_data = self._process.stdout.read(44100 * 2 * 2)  # Read 1 second of audio (44.1kHz, 16-bit stereo)
                     audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
                     if not audio_bytes:
                         raise RuntimeError("Error: No audio data received from FFmpeg.")
@@ -124,9 +125,9 @@ class AudioPlayer(QThread):
                 print(f"Error sending volume command to FFmpeg: {e}")
 
 
-    def get_elapsed_time(self):
+    def get_elapsed_time_ms(self):
         """Returns the elapsed playback time in seconds since the beginning of the audio stream rendition."""
-        elapsed_time = (self._audio_timer.elapsed() - self._pause_duration) * 0.001  # Adjust for pause and convert to seconds
+        elapsed_time = self._master_clock_timer.elapsed() - self._pause_duration_ms  # in ms
         return elapsed_time
 
 
@@ -196,7 +197,7 @@ class VideoPlayer(QThread):
         assert self._fps > 0
         START_POS = self._start_frame_index / self._fps
         FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
-        MAX_TIME_DIFF = 1 / self._fps  # 1 frame in seconds
+        MAX_TIME_DIFF = 1 / self._fps  # 1 frame interval in seconds
 
         # Start video process (only video)
         with QMutexLocker(self._process_mutex):  # 🔒
@@ -226,8 +227,7 @@ class VideoPlayer(QThread):
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
 
-        timer = QElapsedTimer()
-        TARGET_TIME = 1000 / self._fps  # Desired frame interval in ms
+        TARGET_TIME_MS = 1000 / self._fps  # Desired frame interval in ms
 
         # Start audio thread
         if self._volume > 0:
@@ -238,15 +238,18 @@ class VideoPlayer(QThread):
                 self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume, self._speed)
                 self._audio_thread.start()
 
+        frame_timer = QElapsedTimer()
+
         frame_index = self._start_frame_index
+        time_compensation_ms = 0
         while self._running and frame_index < self._end_frame_index:
-            timer.start()
-            pause_duration = 0
+            frame_timer.start()
+            pause_duration_ms = 0
             
             with QMutexLocker(self._pause_mutex):  # 🔒
                 if self._paused:
                     self._pause_condition.wait(self._pause_mutex)  # Wait until resumed
-                    pause_duration = timer.elapsed()
+                    pause_duration_ms = frame_timer.elapsed()
 
             # Ensures process isn't stopped before reading
             video_bytes = self.read_one_frame(FRAME_BYTES)
@@ -268,27 +271,17 @@ class VideoPlayer(QThread):
 
             # Compare video time with audio time
             if self._running:
-                video_time = (frame_index - self._start_frame_index) / self._fps  # Expected video time in seconds
-                audio_time = self._audio_thread.get_elapsed_time() if self._audio_thread else video_time
-                time_diff = video_time - audio_time  # in s
+                remaining_time_ms = TARGET_TIME_MS - (frame_timer.elapsed() - pause_duration_ms) + time_compensation_ms
+                remaining_time_ms = int(max(0, min(TARGET_TIME_MS * 2, remaining_time_ms)))  # clamp to [0, 2 * TARGET_TIME_MS] -> max 2 frames
 
-                if time_diff < -MAX_TIME_DIFF:  # Video is behind → drop a frame
-                    if frame_index + 1 < self._end_frame_index:  # Last frame should always be displayed
-                        video_bytes = self.read_one_frame(FRAME_BYTES)
-                        if not video_bytes:
-                            break
-                        print(f"Dropped frame {frame_index}")
-                        frame_index += 1  # Drop this frame and move to the next
-                    continue
+                # Sleep until end of frame
+                if remaining_time_ms > 0:
+                    self.msleep(remaining_time_ms)
 
-                remaining_time = TARGET_TIME - (timer.elapsed() - pause_duration) # in ms
-
-                if time_diff > MAX_TIME_DIFF:  # Video is ahead → slow it down
-                    remaining_time += time_diff * 1000
-
-                remaining_time = int(max(0, min(TARGET_TIME * 2, remaining_time)))  # clamp to [0, 2 * TARGET_TIME] -> max 2 frames
-                if remaining_time > 0:
-                    self.msleep(remaining_time)  # in ms
+                # Absolute time difference at the end of the frame, to compensate next frame
+                video_time_ms = (frame_index - self._start_frame_index) * TARGET_TIME_MS  # Expected video time in ms
+                master_clock_elapsed_time_ms = self._audio_thread.get_elapsed_time_ms() if self._audio_thread else video_time_ms
+                time_compensation_ms = video_time_ms - master_clock_elapsed_time_ms
 
         self.cleanup()
 
