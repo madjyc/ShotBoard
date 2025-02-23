@@ -73,10 +73,9 @@ class ShotBoardDb:
         shot_index = bisect.bisect_left(self._shots, frame_index)
         if self._shots[shot_index] == frame_index:
             start_index = shot_index
-            end_index = shot_index + 1
         else:
             start_index = shot_index - 1
-            end_index = shot_index
+        end_index = start_index + 1
 
         start_frame = self._shots[start_index]
         end_frame = self._shots[end_index] if end_index < len(self._shots) else self._frame_count

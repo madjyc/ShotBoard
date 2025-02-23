@@ -214,11 +214,11 @@ class ThumbnailManager(QObject):
 
 
     def start_processing_queue(self):
-        QTimer.singleShot(0, self.process_queue)  # 100 ms delay
+        QTimer.singleShot(0, self.process_queue)
 
 
     def process_queue(self):
-        """Processes the priority list first, then the queue, and starts workers."""
+        """Processes the priority list first, then the queue, and starts worker threads."""
         if self.is_processing_queue:
             return
         self.is_processing_queue = True

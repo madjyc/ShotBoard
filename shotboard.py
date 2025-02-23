@@ -33,19 +33,20 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.7.3"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
 SPLITTER_HANDLE_WIDTH = 2
 
 # SSIM shot detection
-MIN_SSIM_DROP_THRESHOLD = 0.05
-MAX_SSIM_DROP_THRESHOLD = 0.30
+SIM_DROP_THRESHOLD_MIN = 0.05
+SIM_DROP_THRESHOLD_MAX = 0.30
+SIM_DROP_THRESHOLD_DEFAULT = 0.10
 
 # Detection slider
-DETECTION_SLIDER_STEPS = int((MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD) / 0.01)
-DEFAULT_DETECTION_SLIDER_VALUE = int(((0.25 - MIN_SSIM_DROP_THRESHOLD) / (MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD)) * DETECTION_SLIDER_STEPS)
+DETECTION_SLIDER_STEPS = int((SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN) / 0.01)
+DEFAULT_DETECTION_SLIDER_VALUE = int(((SIM_DROP_THRESHOLD_DEFAULT - SIM_DROP_THRESHOLD_MIN) / (SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN)) * DETECTION_SLIDER_STEPS)
 
 # UI colors
 VIDEO_BACKGROUND_COLOR = "#000000"  # Black
@@ -202,7 +203,7 @@ class ShotBoard(QMainWindow):
         splitter.splitterMoved.connect(self.on_handle_splitter_moved)
         splitter.addWidget(top_widget)
         splitter.addWidget(bottom_widget)
-        splitter.setSizes([50, 50])
+        splitter.setSizes([geom.height() // 2, geom.height() // 2])
         splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
         splitter.setStyleSheet(f"""
             QSplitter::handle {{
@@ -670,8 +671,18 @@ class ShotBoard(QMainWindow):
                 if event.button() == Qt.RightButton:
                     if RIGHT_CLICK_SAVE:
                         self.on_menu_save()
-                        return True
-            
+                        return True  # Event handled
+
+            # elif event.type() == QEvent.Wheel:
+            #     scroll_delta = event.angleDelta().y()
+            #     volume_increment = 0.05  # Volume per scroll step
+            #     if scroll_delta > 0:  # Scroll up (increase volume)
+            #         self._volume = min(self._volume + volume_increment, 1.0)  # Cap volume at 1.0
+            #     elif scroll_delta < 0:  # Scroll down (decrease volume)
+            #         self._volume = max(self._volume - volume_increment, 0.0)  # Cap volume at 0.0
+            #     self._volume_slider.setValue(self._volume)
+            #     return True  # Event handled
+                    
             elif event.type() == QEvent.KeyPress:
                 if event.key() == Qt.Key_Space:
                     self._play_button.click()  # Play / pause
@@ -693,10 +704,10 @@ class ShotBoard(QMainWindow):
 
                 if event.key() == Qt.Key_Right:
                     self.seek_video(frame_index + frame_inc)
-                    return True
+                    return True  # Event handled
                 elif event.key() == Qt.Key_Left:
                     self.seek_video(frame_index - frame_inc)
-                    return True
+                    return True  # Event handled
 
         # Unprocessed events propagate as usual
         return super().eventFilter(obj, event)
@@ -1083,8 +1094,7 @@ class ShotBoard(QMainWindow):
         cap.release()
 
         self._mediaplayer.set_video(self._video_path, self._fps, self._frame_count)
-        # self._mediaplayer.setVolume(self._volume_slider.value())
-        SBMediaPlayer.volume = self._volume_slider.value()
+        self.on_volume_slider_moved(self._volume_slider.value())
 
         self._seek_slider.setRange(0, self._frame_count - 1)
         self._seek_spinbox.setRange(0, self._frame_count - 1)
@@ -1289,8 +1299,8 @@ class ShotBoard(QMainWindow):
                     # Detect a sudden drop '\' in similarity
                     simple_condition = prev_prev_ssim - prev_ssim >= ssim_drop_threshold
                     # Detect a 'V' spike (sudden drop followed by a rise) in similarity
-                    double_condition = ((prev_prev_ssim - prev_ssim >= MAX_SSIM_DROP_THRESHOLD and current_ssim - prev_ssim >= ssim_drop_threshold) or
-                                        (prev_prev_ssim - prev_ssim >= ssim_drop_threshold and current_ssim - prev_ssim >= MAX_SSIM_DROP_THRESHOLD))
+                    double_condition = ((prev_prev_ssim - prev_ssim >= SIM_DROP_THRESHOLD_MAX and current_ssim - prev_ssim >= ssim_drop_threshold) or
+                                        (prev_prev_ssim - prev_ssim >= ssim_drop_threshold and current_ssim - prev_ssim >= SIM_DROP_THRESHOLD_MAX))
                     condition = double_condition if self._double_condition_checkbox.isChecked() else simple_condition
                     if condition:
                         # Add shot at the previous frame
@@ -1753,7 +1763,7 @@ class ShotBoard(QMainWindow):
 
 
     def convert_detection_slider_value_to_ssim_drop_threshold(self, value):
-        return (MAX_SSIM_DROP_THRESHOLD - MIN_SSIM_DROP_THRESHOLD) * (value / DETECTION_SLIDER_STEPS) + MIN_SSIM_DROP_THRESHOLD
+        return (SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN) * (value / DETECTION_SLIDER_STEPS) + SIM_DROP_THRESHOLD_MIN
 
 
     def make_export_path(self, start_pos, extension):

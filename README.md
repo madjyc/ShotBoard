@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.7.2-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.7.3-blue.svg)
 
-# ShotBoard v0.7.2
+# ShotBoard v0.7.3
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -91,7 +91,7 @@ To detect all shots in the video:
 2. Click <kbd>Scan selected shots</kbd>.
 3. ShotBoard will analyze the video and display the detected shots as thumbnails.
 
-Tip: To display a detection graph in realtime, unable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.
+Tip: To display a detection graph in realtime, enable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.
 
 ### Saving and Opening Shot Lists
 - To save detected shots for later, click on **File > Save** or **File > Save As**. Or simply right click (a quicker and convenient way to save).
@@ -109,7 +109,7 @@ Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thum
 
 ### Correcting Shot Detection Errors
 1. Select the incriminated shot (**Shift + Click** to add more shots to the selection).
-2. Decrease the similarity threshold from 0.25 to around 0.10 and click on <kbd>Scan selected shots</kbd> again. New detected shots will automatically be added to the list.
+2. Disable the **Double** checkbox, raise the similarity threshold to around 0.20 and click on <kbd>Scan selected shots</kbd> again. New detected shots will automatically be added to the list.
 - If a shot still incorrectly contains multiple shots:
 1. Use the slider/spinbox or arrow keys to locate the frame where the first undetected shot begins.
 2. Click **Mark current frame as new shot**. A new shot will be added to the list.
@@ -136,9 +136,9 @@ Although ShotBoard will successfully detect most of the shots, it may struggle w
 - The lighting is stroboscopic (e.g. lightning, flashing lights)
 - Images are choppy or shaking (e.g. faked slow motion in post)
 To avoid overdetecting shots:
-1. Start by scanning at a similarity threshold around 0.25.
+1. Start by scanning at a similarity threshold around 0.10 with the **Double** option checked.
 2. Merge overdetected shots.
-3. Decrease the similarity threshold to around 0.10, then re-scan the underdetected shots as you see fit.
+3. Uncheck the **Double** option and increase the similarity threshold to around 0.20, then re-scan the underdetected shots as you see fit.
 
 ## Conclusion  
 ShotBoard provides an intuitive way to analyze movies, study cinematic storytelling and explore editing techniques. Displaying shots as animated 'line drawings' can tremendously help studying storyboarding.

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ShotBoard v0.7.2</title>
+    <title>ShotBoard v0.7.3</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; }
         h1, h2, h3 { color: #333; }
@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>ShotBoard v0.7.2</h1>
+    <h1>ShotBoard v0.7.3</h1>
     <p><strong>For Windows 10+ and Linux (not sure about Mac, feel free to try).</strong></p>
     
     <h2>ShotBoard: Visualize movies shot by shot</h2>
@@ -94,7 +94,7 @@
         <li>Click <kbd>Scan selected shots</kbd>.</li>
         <li>ShotBoard will analyze the video and display the detected shots as thumbnails.</li>
     </ol>
-    <p>Tip: To display a detection graph in realtime, unable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.</p>
+    <p>Tip: To display a detection graph in realtime, enable the <kbd>Monitor</kbd> checkbox BEFORE starting the detection process. You will be able to monitor when and why shots are detected (or not) by observing shot similiarities returned by the SSIM algorhythm. The lower the value, the less similar the current frame is to the previous one. Just remember to close the popup window when you're done.</p>
     
     <h3>Saving and Opening Shot Lists</h3>
     <p>Save detected shots for later:</p>
@@ -119,7 +119,7 @@
     <h3>Correcting Shot Detection Errors</h3>
     <ul>
         <li>Select the incriminated shot (<strong>Shift + Click</strong> to add more shots to the selection).</li>
-        <li>Decrease the similarity threshold from 0.25 to around 0.10 and click on <kbd>Scan selected shots</kbd> again. New detected shots will automatically be added to the list.</li></li>
+        <li>Disable the <strong>Double</strong> checkbox, raise the similarity threshold to around 0.20 and click on <kbd>Scan selected shots</kbd> again. New detected shots will automatically be added to the list.</li></li>
     </ul>
     <p>If a shot still incorrectly contains multiple shots:</p>
     <ul>
@@ -160,9 +160,9 @@
     </ul>
     <p>To avoid overdetecting shots:</p>
     <ol>
-        <li>Start by scanning at a similarity threshold around 0.25.</li>
+        <li>Start by scanning at a similarity threshold around 0.10 with the <strong>Double</strong> option checked.</li>
         <li>Merge overdetected shots.</li>
-        <li>Decrease the similarity threshold to around 0.10, then re-scan the underdetected shots as you see fit.</li>
+        <li>Uncheck the <strong>Double</strong> option and increase the similarity threshold to around 0.20, then re-scan the underdetected shots as you see fit.</li>
     </ol>
 
     <h2>Conclusion</h2>

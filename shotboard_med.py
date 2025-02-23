@@ -1,13 +1,13 @@
 from shotboard_vid import *
+from shotboard_ui import *
 
 import ffmpeg
 import subprocess
 import os
 import queue
-import weakref
 from enum import IntEnum, auto
-from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThreadPool, QRunnable, QEvent, QTimer, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker, QSemaphore
-from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QLabel, QSizePolicy
 from PyQt5.QtGui import QImage, QPixmap
 
 
@@ -53,6 +53,8 @@ class SBMediaPlayer(QLabel):
         # self.setMaximumSize(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)  #  256 x 128 px
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("background-color: black;")  # black, darkCyan
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumSize(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)
 
 
     def reset_frame(self):
@@ -69,7 +71,6 @@ class SBMediaPlayer(QLabel):
 
     def is_ready(self):
         if not self.video_path:
-            print(f"Error: No video file loaded.")
             return False
         
         if not os.path.isfile(self.video_path):
@@ -99,6 +100,12 @@ class SBMediaPlayer(QLabel):
 
     def get_state(self):
         return self.state
+
+
+    def resizeEvent(self, event):
+        """Handle resizing by recalculating the pixmap."""
+        self.set_still_frame(self.frame_index)
+        super().resizeEvent(event)
 
 
     def mousePressEvent(self, event):
