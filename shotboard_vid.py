@@ -3,6 +3,7 @@ import numpy as np
 import pyaudio
 from queue import Queue
 import os
+from math import *
 from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QMutexLocker, QWaitCondition
 from PyQt5.QtGui import QImage
 
@@ -12,7 +13,7 @@ from PyQt5.QtGui import QImage
 #
 
 
-AUDIO_BUFFER_SIZE = 1024  # 4096 by default
+AUDIO_BUFFER_SIZE = 1024  # E.g. (44100 * 2 * 2) = 1 second of audio (44.1kHz, 16-bit stereo)
 
 
 class AudioPlayer(QThread):
@@ -32,7 +33,7 @@ class AudioPlayer(QThread):
 
         self._video_path = video_path
         self._start_pos = start_pos
-        self._volume = volume
+        self.set_volume(volume)
         self._speed = speed
 
         self._running = True
@@ -49,21 +50,13 @@ class AudioPlayer(QThread):
         with QMutexLocker(self._process_mutex):  # 🔒
             if not self._running:
                 return
-            # i=-23 → Target integrated loudness (LUFS).
-            # tp=-2 → True peak limit (-2 dB to prevent clipping).
-            # lra=11 → Loudness range adjustment.
-            # measured_I=-self._volume * 23 → Adjust perceived volume dynamically based on self._volume.
+
             self._process = (
                 ffmpeg
                 .input(self._video_path, ss=self._start_pos)
-                .filter('volume', f'{self._volume}', enable='between(t,0,99999)')  # Enable commands
-                # .filter('loudnorm', i=-23, tp=-2, lra=11, measured_I=-self._volume * 23)  # Set volume (1.0 = 100%, 0.5 = 50%)
-                #    .filter('loudnorm', i=-10, tp=0, lra=11, measured_I=-23 + (self._volume - 1) * 10)
-                #    .filter('atempo', self._speed)  # DO NOT USE AS LONG AS VIDEO FILTER SETPTS DOOESN'T WORK PROPERLY
-                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)#, filter_complex='asetpts=N/SR/TB')
-                #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, audio_buffer_size=256)
-                #    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100, re=None, audio_buffer_size=256)
-                .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=False)
+                .filter('volume', f'{self._volume}')
+                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
+                .run_async(pipe_stdout=True, pipe_stderr=False)
             )
 
         self._master_clock_timer.start()
@@ -79,8 +72,7 @@ class AudioPlayer(QThread):
                 if not self._running or self._process.poll() is not None:
                     break
                 try:
-                    # audio_data = self._process.stdout.read(44100 * 2 * 2)  # Read 1 second of audio (44.1kHz, 16-bit stereo)
-                    audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)  # Read audio in chunks
+                    audio_bytes = self._process.stdout.read(AUDIO_BUFFER_SIZE)
                     if not audio_bytes:
                         raise RuntimeError("Error: No audio data received from FFmpeg.")
                 except (OSError, ValueError) as e:
@@ -89,7 +81,11 @@ class AudioPlayer(QThread):
                     break
 
             try:
-                self._audio_stream.write(audio_bytes)  # Play audio in real-time
+                # Apply a linear volume factor
+                audio_bytes = ((np.frombuffer(audio_bytes, dtype=np.int16) * self._volume).astype(np.int16)).tobytes()
+                
+                # Write the adjusted audio data to the stream
+                self._audio_stream.write(audio_bytes)
             except (OSError) as e:
                 print(f"Error playing audio data: {e}")
                 break
@@ -105,24 +101,18 @@ class AudioPlayer(QThread):
             #     AudioPlayer._audio_stream.close()
             #     AudioPlayer._audio.terminate()
             if hasattr(self, '_process'):
-                self._process.stdin.close()
                 self._process.stdout.close()
-                # self._process.stderr.close()
                 self._process.terminate()  # kill
                 self._process.wait()
 
 
-    # /!\ DOESN'T WORK YET
     def set_volume(self, volume):
-        """Dynamically change FFmpeg audio volume."""
-        self._volume = max(0.0, min(2.0, volume))  # Limit volume between 0% and 200%
-        if self._process and self._process.stdin:
-            cmd = f"volume {self._volume}\n"  # Send FFmpeg command
-            try:
-                self._process.stdin.write(cmd.encode())
-                self._process.stdin.flush()
-            except (OSError, BrokenPipeError) as e:
-                print(f"Error sending volume command to FFmpeg: {e}")
+        """Dynamically change the audio volume."""
+        self._volume = max(0.0, min(1.0, volume))  # Limit volume between 0% and 100%
+
+
+    def gt_volume(self):
+        return self._volume
 
 
     def get_elapsed_time_ms(self):
@@ -214,7 +204,6 @@ class VideoPlayer(QThread):
                     #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
                     .filter('negate')  # Invert colors
                     #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
-                    # .filter('setpts', f'PTS/{self._speed}')  # DO NOT USE, SYNC ISSUE
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
@@ -222,7 +211,6 @@ class VideoPlayer(QThread):
                 self._process = (
                     ffmpeg
                     .input(self._video_path, ss=START_POS)
-                    # .filter('setpts', f'PTS/{self._speed}')  # DO NOT USE, SYNC ISSUE
                     .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
                     .run_async(pipe_stdout=True, pipe_stderr=False)
                 )
