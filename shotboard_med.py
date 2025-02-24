@@ -194,7 +194,7 @@ class SBMediaPlayer(QLabel):
             self.videoplayer.stop()
             self.videoplayer = None
 
-        START_POS = frame_index / self.fps  # no offset for FFmpeg
+        START_POS = (frame_index - 0.5) / self.fps
 
         # Use FFmpeg to extract the frame
         ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)

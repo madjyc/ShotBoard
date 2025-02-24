@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.4"
+APP_VERSION = "0.7.5"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -303,7 +303,7 @@ class ShotBoard(QMainWindow):
         # Create 'Export Frame' action
         action = QAction('Export Frame', self)
         action.triggered.connect(self.on_menu_export_current_frame)
-        action.setShortcut(QKeySequence(Qt.CTRL + Qt.ALT + Qt.Key_E))
+        action.setShortcut(QKeySequence(Qt.ALT + Qt.Key_E))
         export_menu.addAction(action)
 
         # Create 'Export As...' submenu
@@ -318,7 +318,7 @@ class ShotBoard(QMainWindow):
         # Create 'Export Frame As' action
         action = QAction('Export Frame As', self)
         action.triggered.connect(self.on_menu_export_current_frame_as)
-        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.CTRL + Qt.ALT + Qt.Key_E))
+        action.setShortcut(QKeySequence(Qt.SHIFT + Qt.ALT + Qt.Key_E))
         export_as_menu.addAction(action)
 
         file_menu.addSeparator()
@@ -1214,13 +1214,13 @@ class ShotBoard(QMainWindow):
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        start_pos = start_frame_index / self._fps  # frame position in seconds
+        START_POS = start_frame_index / self._fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
             "ffmpeg",
             #"-loglevel", "debug",
-            "-ss", str(start_pos),  # Fast seek FIRST
+            "-ss", str(START_POS),  # Fast seek FIRST
             "-i", self._video_path,  # Input file AFTER
             "-vframes", str(end_frame_index - start_frame_index),
             "-vf", f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}, format=gray",  # Scale and convert to grayscale
@@ -1417,7 +1417,7 @@ class ShotBoard(QMainWindow):
         shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
         start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
-        start_pos = start_frame_index / self._fps
+        START_POS = start_frame_index / self._fps
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1426,7 +1426,7 @@ class ShotBoard(QMainWindow):
             if not save_path:
                 return
         else:
-            save_path = self.make_export_path(start_pos, extension=".mp4")
+            save_path = self.make_export_path(START_POS, extension=".mp4")
 
         if os.path.exists(save_path) and not QMessageBox.question(self, 'File Exists', f"The file {save_path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
            return
@@ -1448,7 +1448,7 @@ class ShotBoard(QMainWindow):
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # Overwrite without asking
-            "-ss", str(start_pos),  # Apply seeking **after** input for accuracy
+            "-ss", str(START_POS),  # Apply seeking **after** input for accuracy
             "-i", self._video_path,  # Input file first
             # "-c", "copy",  # Copy streams instead of re-encoding
             "-c:v", "libx264",  # Re-encode video to ensure precision
@@ -1485,7 +1485,7 @@ class ShotBoard(QMainWindow):
         self.pause_video()
 
         # Calculate timestamp in seconds
-        start_pos = frame_index / self._fps
+        START_POS = (frame_index - 0.5) / self._fps
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1494,7 +1494,7 @@ class ShotBoard(QMainWindow):
             if not save_path:
                 return
         else:
-            save_path = self.make_export_path(start_pos, extension=".jpg")
+            save_path = self.make_export_path(START_POS, extension=".jpg")
 
         if os.path.exists(save_path) and not QMessageBox.question(
             self, "File Exists", f"The file {save_path} already exists. Do you want to overwrite it?",
@@ -1519,7 +1519,7 @@ class ShotBoard(QMainWindow):
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",  # Overwrite without asking
-            "-ss", str(start_pos),  # Seek to the frame
+            "-ss", str(START_POS),  # Seek to the frame
             "-i", self._video_path,  # Input file
             "-frames:v", "1",  # Export only one frame
             "-q:v", "2",  # High quality (lower = better quality, range: 2-31)
@@ -1768,11 +1768,11 @@ class ShotBoard(QMainWindow):
         return (SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN) * (value / DETECTION_SLIDER_STEPS) + SIM_DROP_THRESHOLD_MIN
 
 
-    def make_export_path(self, start_pos, extension):
+    def make_export_path(self, START_POS, extension):
         # Extract filename and remove extension
         filename, _ = os.path.splitext(os.path.basename(self._video_path))  # Split the extension
         title = filename.replace(" ", "")  # Remove spaces
-        timestamp = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}"
+        timestamp = f"{int(START_POS // 3600):02}{int((START_POS % 3600) // 60):02}{int(START_POS % 60):02}"
 
         # Split title and year, assuming the format "Title (Year)"
         if "(" in title and title.endswith(")"):

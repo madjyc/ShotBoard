@@ -67,7 +67,7 @@ class ThumbnailLoader(QRunnable):
         pixmap = QPixmap(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)
         pixmap.fill(Qt.darkCyan)  # Default black in case of error
 
-        START_POS = self.frame_index / self.fps  # no offset for FFmpeg
+        START_POS = (self.frame_index - 0.5) / self.fps  # no offset for FFmpeg
 
         # Construct FFmpeg command using ffmpeg-python
         with QMutexLocker(ThumbnailLoader.ffmpeg_mutex):
@@ -434,7 +434,7 @@ class ShotWidget(QFrame):
             return
 
         assert self.fps > 0
-        START_POS = self.start_frame_index / self.fps  # no offset for FFmpeg
+        START_POS = (self.start_frame_index - 0.5) / self.fps  # no offset for FFmpeg
 
         # Use FFmpeg to extract the frame
         ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)
@@ -555,6 +555,137 @@ class ShotWidget(QFrame):
         """ Ensure the VideoPlayer is stopped when the object is deleted """
         if self.videoplayer:
             self.videoplayer.stop()
+
+
+##
+## SHOT WIDGET MANAGER
+##
+
+
+class ShotWidgetManager:
+    """
+    A class that manages a dictionary of ShotWidget instances, referenced by frame_index.
+    It behaves like a regular dictionary.
+    """
+    def __init__(self):
+        self._widgets = {}  # Dictionary to store ShotWidget instances
+
+
+    def __getitem__(self, frame_index):
+        """
+        Allows accessing ShotWidget instances using the [] operator.
+        Example: widget = manager[frame_index]
+        """
+        return self._widgets[frame_index]
+
+
+    def __setitem__(self, frame_index, widget):
+        """
+        Allows adding or updating ShotWidget instances using the [] operator.
+        Example: manager[frame_index] = widget
+        """
+        if not isinstance(widget, ShotWidget):
+            raise TypeError("Value must be an instance of ShotWidget")
+        self._widgets[frame_index] = widget
+
+
+    def __delitem__(self, frame_index):
+        """
+        Allows deleting ShotWidget instances using the del operator.
+        Example: del manager[frame_index]
+        """
+        del self._widgets[frame_index]
+
+
+    def __contains__(self, frame_index):
+        """
+        Allows checking if a frame_index exists in the manager using the 'in' operator.
+        Example: if frame_index in manager:
+        """
+        return frame_index in self._widgets
+
+
+    def __len__(self):
+        """
+        Returns the number of ShotWidget instances in the manager.
+        Example: count = len(manager)
+        """
+        return len(self._widgets)
+
+
+    def __iter__(self):
+        """
+        Allows iterating over the frame_index keys in the manager.
+        Example: for frame_index in manager:
+        """
+        return iter(self._widgets)
+
+
+    def keys(self):
+        """
+        Returns a list of all frame_index keys in the manager.
+        Example: keys = manager.keys()
+        """
+        return self._widgets.keys()
+
+
+    def values(self):
+        """
+        Returns a list of all ShotWidget instances in the manager.
+        Example: widgets = manager.values()
+        """
+        return self._widgets.values()
+
+
+    def items(self):
+        """
+        Returns a list of (frame_index, ShotWidget) pairs in the manager.
+        Example: items = manager.items()
+        """
+        return self._widgets.items()
+
+
+    def get(self, frame_index, default=None):
+        """
+        Returns the ShotWidget for the given frame_index, or a default value if not found.
+        Example: widget = manager.get(frame_index, default_widget)
+        """
+        return self._widgets.get(frame_index, default)
+
+
+    def clear(self):
+        """
+        Removes all ShotWidget instances from the manager.
+        Example: manager.clear()
+        """
+        self._widgets.clear()
+
+
+    def pop(self, frame_index, default=None):
+        """
+        Removes and returns the ShotWidget for the given frame_index, or a default value if not found.
+        Example: widget = manager.pop(frame_index)
+        """
+        return self._widgets.pop(frame_index, default)
+
+
+    def update(self, other):
+        """
+        Updates the manager with items from another dictionary or iterable of (frame_index, ShotWidget) pairs.
+        Example: manager.update({frame_index: widget})
+        """
+        for frame_index, widget in other.items():
+            if not isinstance(widget, ShotWidget):
+                raise TypeError("Value must be an instance of ShotWidget")
+        self._widgets.update(other)
+
+
+    def __repr__(self):
+        """
+        Returns a string representation of the manager.
+        Example: print(manager)
+        """
+        return f"ShotWidgetManager({self._widgets})"
 
 
 if __name__ == "__main__":
