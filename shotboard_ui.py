@@ -67,19 +67,11 @@ class ThumbnailLoader(QRunnable):
         pixmap = QPixmap(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)
         pixmap.fill(Qt.darkCyan)  # Default black in case of error
 
-        start_pos = self.frame_index / self.fps  # no offset for FFmpeg
-
-        # ffmpeg_cmd = [
-        #     "ffmpeg", "-y", "-ss", str(start_pos),
-        #     "-i", self.video_path, "-vframes", "1",
-        #     "-vf", f"scale={SHOT_WIDGET_IMAGE_WIDTH}:{SHOT_WIDGET_IMAGE_HEIGHT}",
-        #     "-f", "image2", "-vcodec", "mjpeg", "pipe:1"
-        # ]
+        START_POS = self.frame_index / self.fps  # no offset for FFmpeg
 
         # Construct FFmpeg command using ffmpeg-python
         with QMutexLocker(ThumbnailLoader.ffmpeg_mutex):
-            ffmpeg_cmd = ffmpeg.input(self.video_path, ss=start_pos)
-
+            ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)
             if ShotWidget.detect_edges:
                 ffmpeg_cmd = (
                     ffmpeg_cmd
@@ -87,37 +79,36 @@ class ThumbnailLoader(QRunnable):
                     .filter('sobel', scale=ShotWidget.edge_factor)  # Edge detection
                     .filter('negate')  # Invert colors
                 )
+            ffmpeg_cmd = ffmpeg_cmd.output('pipe:', vframes=1, format='image2', vcodec='mjpeg').compile()
 
-            # Run FFmpeg directly through ffmpeg-python
-            try:
-                out, _ = (
-                    ffmpeg_cmd
-                    .output('pipe:', vframes=1, format='image2', vcodec='mjpeg')
-                    .run(capture_stdout=True, capture_stderr=False)
-                )
-
-                if out:
-                    pixmap.loadFromData(out)
-
-            except ffmpeg.Error as e:
+            process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            out, err = process.communicate()
+            if process.returncode != 0:
                 print("Error: Cannot extract frame with FFmpeg.")
-                print(e.stderr.decode())
+                print(err.decode())
                 self.signals.thumbnail_failed.emit(self.frame_index)
                 return
 
-        self.signals.thumbnail_loaded.emit(self.frame_index, pixmap)
+            pixmap.loadFromData(out)
+            self.signals.thumbnail_loaded.emit(self.frame_index, pixmap)
+
+
+##
+## THUMBNAIL MANAGER
+##
 
 
 class ThumbnailManager(QObject):
     """Manages asynchronous loading of QPixmaps."""
 
-    thumbnail_loaded = pyqtSignal(int, QPixmap)  # Signal emitted when an image is ready
+    thumbnail_loaded = pyqtSignal(int)  # Signal emitted when an image is ready
 
 
     def __init__(self):
         super().__init__()
         self.thread_pool = QThreadPool.globalInstance()
-        self.lock = QReadWriteLock()  # 🔹 Use Read-Write Lock
+        # self.thread_pool.setMaxThreadCount(2)  # DEBUG
+        self.lock = QReadWriteLock()
         self.queue = []  # Frame index queue
         self.priority_list = []  # High-priority frame indexes
         self.thumbnails = {}  # Loaded pixmaps
@@ -136,8 +127,8 @@ class ThumbnailManager(QObject):
     def clear(self):
         """Clears all stored thumbnails and resets the queue."""
         with QWriteLocker(self.lock):
-            self.running_tasks.clear()
             self.thumbnails.clear()
+            self.running_tasks.clear()
         self.queue.clear()
         self.clear_priority_list()
 
@@ -162,7 +153,7 @@ class ThumbnailManager(QObject):
         
         if frame_index not in self.queue:
             self.queue.append(frame_index)
-            self.start_processing_queue()
+            self.process_queue()
 
 
     def add_frame_indexes_to_queue(self, frame_indexes):
@@ -170,7 +161,7 @@ class ThumbnailManager(QObject):
         unique_indexes = set(frame_indexes) - set(self.queue)  # Remove duplicates
         if unique_indexes:
             self.queue.extend(unique_indexes)
-            self.start_processing_queue()
+            self.process_queue()
 
 
     def add_frame_index_to_priority_list(self, frame_index):
@@ -191,15 +182,10 @@ class ThumbnailManager(QObject):
 
     def request_thumbnail(self, frame_index, priority=False):
         """Adds a frame index to the queue or priority list if needed."""
-
-        print(f"....ThumbnailManager.request_thumbnail() > shot_widget {frame_index} requesting thumbnail...")
         # Already loaded? Respond immediately
         if self.has_thumbnail(frame_index):
-            print(f"....ThumbnailManager.request_thumbnail() > shot_widget {frame_index} emitting...")
-            image = self.get_thumbnail(frame_index)
-            print(f"......ThumbnailManager.request_thumbnail() > shot_widget {frame_index} image fetched.")
-            self.thumbnail_loaded.emit(frame_index, image)
-            print(f"....ThumbnailManager.request_thumbnail() > shot_widget {frame_index} emitted.")
+            # image = self.get_thumbnail(frame_index)
+            self.thumbnail_loaded.emit(frame_index)
             return
 
         # Else store the requested frame index and start processing the queue
@@ -208,13 +194,8 @@ class ThumbnailManager(QObject):
 
         if priority and frame_index not in self.priority_list:
             self.priority_list.append(frame_index)  # Add to priority list
-        print(f"....ThumbnailManager.request_thumbnail() > shot_widget {frame_index} thumbnail requested.")
 
-        self.start_processing_queue()
-
-
-    def start_processing_queue(self):
-        QTimer.singleShot(0, self.process_queue)
+        self.process_queue()
 
 
     def process_queue(self):
@@ -233,8 +214,8 @@ class ThumbnailManager(QObject):
                 break  # Nothing left to process
 
             if self.has_thumbnail(frame_index):
-                image = self.get_thumbnail(frame_index)
-                self.thumbnail_loaded.emit(frame_index, image)
+                # image = self.get_thumbnail(frame_index)
+                self.thumbnail_loaded.emit(frame_index)
                 continue
 
             with QReadLocker(self.lock):
@@ -257,15 +238,15 @@ class ThumbnailManager(QObject):
         with QWriteLocker(self.lock):
             self.thumbnails[frame_index] = pixmap
             self.running_tasks.discard(frame_index)
-        self.thumbnail_loaded.emit(frame_index, pixmap)
-        self.start_processing_queue()
+        self.thumbnail_loaded.emit(frame_index)
+        self.process_queue()
 
 
     def on_loading_failed(self, frame_index):
         """Called when ffmpeg was unable to load the requested frame."""
         with QWriteLocker(self.lock):
             self.running_tasks.discard(frame_index)
-        self.start_processing_queue()
+        self.process_queue()
 
 
     def has_thumbnail(self, frame_index):
@@ -277,7 +258,7 @@ class ThumbnailManager(QObject):
     def get_thumbnail(self, frame_index):
         """Returns the loaded QPixmap or None if not available."""
         with QReadLocker(self.lock):
-            return self.thumbnails.get(frame_index, None)
+            return self.thumbnails.get(frame_index, None).copy()
 
 
     def __len__(self):
@@ -299,7 +280,8 @@ class ThumbnailManager(QObject):
 
     def __str__(self):
         """Return a string representation of the stored thumbnails."""
-        return f"ThumbnailContainer({list(self.thumbnails.keys())})"
+        with QReadLocker(self.lock):
+            return f"ThumbnailContainer({list(self.thumbnails.keys())})"
 
 
 ##
@@ -377,8 +359,7 @@ class ShotWidget(QFrame):
 
         self.thumbnail_loaded = False
         if SHOT_WIDGET_DEFFERRED_LOADING:
-            # self.request_thumbnail()
-            pass
+            self.request_thumbnail(priority=False)
         else:
             self.initialise_thumbnail()
 
@@ -406,7 +387,7 @@ class ShotWidget(QFrame):
         self.frame_progress_bar.setValue(self.start_frame_index)
         if reset_thumbnail:
             if SHOT_WIDGET_DEFFERRED_LOADING:
-                self.request_thumbnail()
+                self.request_thumbnail(priority=True)
             else:
                 self.initialise_thumbnail()
 
@@ -453,10 +434,10 @@ class ShotWidget(QFrame):
             return
 
         assert self.fps > 0
-        start_pos = self.start_frame_index / self.fps  # no offset for FFmpeg
+        START_POS = self.start_frame_index / self.fps  # no offset for FFmpeg
 
         # Use FFmpeg to extract the frame
-        ffmpeg_cmd = ffmpeg.input(self.video_path, ss=start_pos)
+        ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)
         if ShotWidget.detect_edges:
             ffmpeg_cmd = (
                 ffmpeg_cmd
@@ -518,13 +499,8 @@ class ShotWidget(QFrame):
         self.update_frame(frame_index, QPixmap.fromImage(image))
 
 
-    def update_frame(self, frame_index, pixmap):
-        scaled_pixmap = pixmap.scaled(
-            self.image_label.maximumWidth(),
-            self.image_label.maximumHeight(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
+    def update_frame(self, frame_index, pixmap, fast=False):
+        scaled_pixmap = pixmap.scaled(self.image_label.maximumWidth(), self.image_label.maximumHeight(), Qt.KeepAspectRatio, Qt.FastTransformation if fast else Qt.SmoothTransformation )
         self.image_label.setPixmap(scaled_pixmap)
         self.frame_progress_bar.setValue(frame_index)
         self.thumbnail_loaded = True
@@ -535,36 +511,35 @@ class ShotWidget(QFrame):
     ##
 
 
-    def request_thumbnail(self, force=False):
+    def request_thumbnail(self, priority, force=False):
         """Request a thumbnail from the shared ThumbnailManager."""
         if force:
             self.thumbnail_loaded = False
         
         if not self.thumbnail_loaded:
             self.safe_disconnect()
-            ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_thumbnail_loaded, Qt.QueuedConnection)
-            print(f"..ShotWidget.request_thumbnail() > shot_widget {self.start_frame_index} requesting thumbnail...")
-            ShotWidget.thumbnail_manager.request_thumbnail(self.start_frame_index, priority=True)
-            print(f"..ShotWidget.request_thumbnail() > shot_widget {self.start_frame_index} thumbnail requested.")
+            ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_requested_thumbnail_loaded, Qt.QueuedConnection)
+            ShotWidget.thumbnail_manager.request_thumbnail(self.start_frame_index, priority=priority)
 
 
     # Callback function called directly by ThumbnailManager when a thumbnail is loaded
-    def on_thumbnail_loaded(self, frame_index, pixmap):
+    def on_requested_thumbnail_loaded(self, frame_index):
         """Set the pixmap when it's loaded."""
         assert SHOT_WIDGET_DEFFERRED_LOADING
         if frame_index != self.start_frame_index:
             return
 
         self.safe_disconnect()
-        self.update_frame(0, pixmap)
+        pixmap = ShotWidget.thumbnail_manager.get_thumbnail(self.start_frame_index)
+        self.update_frame(self.start_frame_index, pixmap, True)
+        self.image_label.update()
         self.thumbnail_loaded = True
-        print(f"Thumbnail {frame_index} loaded")
 
 
     def safe_disconnect(self):
         assert SHOT_WIDGET_DEFFERRED_LOADING
         try:
-            ShotWidget.thumbnail_manager.thumbnail_loaded.disconnect(self.on_thumbnail_loaded)
+            ShotWidget.thumbnail_manager.thumbnail_loaded.disconnect(self.on_requested_thumbnail_loaded)
         except TypeError:
             pass  # Already disconnected
 

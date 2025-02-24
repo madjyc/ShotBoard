@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.3"
+APP_VERSION = "0.7.4"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -844,12 +844,14 @@ class ShotBoard(QMainWindow):
         scroll_pos = self._scroll_area.verticalScrollBar().value()
         viewport_rect = QRect(0, scroll_pos, viewport.width(), viewport.height())
 
-        ShotWidget.thumbnail_manager.clear_priority_list()
+        visible_shot_widgets = []
         for shot_widget in self._shot_widgets:
             if viewport_rect.intersects(shot_widget.geometry()):
-                print(f"on_scroll > shot_widget {shot_widget.start_frame_index} requesting thumbnail...")
-                shot_widget.request_thumbnail()
-                print(f"on_scroll > shot_widget {shot_widget.start_frame_index} thumbnail requested.")
+                visible_shot_widgets.append(shot_widget)
+        
+        ShotWidget.thumbnail_manager.clear_priority_list()
+        for shot_widget in visible_shot_widgets:
+            shot_widget.request_thumbnail(priority=True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1792,6 +1794,15 @@ class ShotBoard(QMainWindow):
     def closeEvent(self, event):
         if self._mediaplayer:
             self._mediaplayer.stop()
+
+        # Save the database if dirty
+        if self._db and self._db.is_dirty():
+            if QMessageBox.question(
+                self, "Save Shot list?", f"The shot list have changed. Do you want to save it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            ) == QMessageBox.Yes:
+                self.on_menu_save()
+
         event.accept()
 
 
