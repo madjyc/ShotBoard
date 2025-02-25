@@ -40,7 +40,7 @@ class SBMediaPlayer(QLabel):
 
     def __init__(self):
         super().__init__()
-        self.state = self.State.StoppedState
+        self.state = self.StoppedState
         self.videoplayer = None
 
         self.video_path = None
@@ -118,12 +118,24 @@ class SBMediaPlayer(QLabel):
         return self.frame_index
 
 
+    def is_playing(self):
+        return self.state == self.PlayingState
+
+
+    def is_paused(self):
+        return self.state == self.PausedState
+
+
+    def is_stopped(self):
+        return self.state == self.StoppedState
+
+
     def seek(self, frame_index):
         if not self.is_ready():
             return
 
         # If playing, start playing again from new frame
-        if self.state == self.PlayingState:
+        if self.is_playing():
             self.play(frame_index)
         else: 
             self.set_still_frame(frame_index)
@@ -149,7 +161,7 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer and self.state == self.PlayingState:
+        if self.videoplayer and self.is_playing():
             self.videoplayer.pause()
         
         self.set_state(self.PausedState)
@@ -160,7 +172,7 @@ class SBMediaPlayer(QLabel):
             return
 
         if self.videoplayer:
-            if self.state == self.PausedState:
+            if self.is_paused():
                 if self.frame_index + 1 < self.end_frame_index:
                     self.videoplayer.resume()
                 else:

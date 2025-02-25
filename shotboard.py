@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.5"
+APP_VERSION = "0.7.6"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -855,11 +855,21 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_shot_widget_hovered(self, entering):
+        if not self._ui_enabled:
+            return
+        
+        if entering and self._mediaplayer.is_playing():
+            self.pause_video()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_shot_widget_clicked(self, shift_pressed):
         if not self._ui_enabled:
             return
         
-        self.pause_video()
+        if self._mediaplayer.is_playing():
+            self.pause_video()
 
         # Fetch the shot widget emitting the signal
         shot_widget = self.sender()
@@ -963,6 +973,7 @@ class ShotBoard(QMainWindow):
 
     def create_shot_widget(self, widget_index, start_frame_index):
         shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(start_frame_index))
+        shot_widget.hovered.connect(self.on_shot_widget_hovered)
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
         self._shot_widgets.insert(widget_index, shot_widget)
 
@@ -1755,9 +1766,8 @@ class ShotBoard(QMainWindow):
         self.update_ui_state()
 
 
-    def convert_frame_index_to_ms(self, frame_index):
-        frame_index = int(frame_index) + 0.5
-        return max(0, int(frame_index * 1000 / self._fps))  # returns mid-frame position in milliseconds
+    def frame_index_to_ms(self, frame_index):
+        return max(0, int(frame_index * 1000 / self._fps))  # in milliseconds
 
 
     def ms_to_frame_index(self, time_ms):
