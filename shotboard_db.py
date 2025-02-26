@@ -52,7 +52,7 @@ class ShotBoardDb:
             self._is_dirty = True
 
 
-    def get_shot(self, frame_index):
+    def get_shot_index(self, frame_index):
         return self._shots.index(frame_index)
     
 

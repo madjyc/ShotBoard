@@ -11,6 +11,10 @@ from PyQt5.QtWidgets import QLabel, QSizePolicy
 from PyQt5.QtGui import QImage, QPixmap
 
 
+# Image dimension for storage
+VIDEO_SIZE_MIN = (296, 167) # h = w * 0.5625
+
+
 ##
 ## MEDIA PLAYER
 ##
@@ -48,13 +52,10 @@ class SBMediaPlayer(QLabel):
         self.frame_index = 0
         self.end_frame_index = 0  # excluded
 
-        # self.setFixedSize(SHOT_WIDGET_WIDTH, SHOT_WIDGET_HEIGHT)  #  256 x 148 px
-        # self.setFrameStyle(QFrame.Box)
-        # self.setMaximumSize(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)  #  256 x 128 px
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("background-color: black;")  # black, darkCyan
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumSize(SHOT_WIDGET_IMAGE_WIDTH, SHOT_WIDGET_IMAGE_HEIGHT)
+        self.setMinimumSize(VIDEO_SIZE_MIN[0], VIDEO_SIZE_MIN[1])
 
 
     def reset_frame(self):
@@ -153,7 +154,7 @@ class SBMediaPlayer(QLabel):
         if self.videoplayer:
             self.videoplayer.frame_signal.connect(self.on_frame_loaded)
             self.videoplayer.start()  # Start the video rendering thread
-        
+
         self.set_state(self.PlayingState)
 
 
@@ -244,7 +245,6 @@ class SBMediaPlayer(QLabel):
         if not self.videoplayer._frame_queue.empty():
             try:
                 frame_index, image = self.videoplayer._frame_queue.get()  # Thread-safe
-                #print(f"Start updating frame {self.frame_index}")
                 self.update_frame_from_image(frame_index, image)
                 if frame_index + 1 >= self.end_frame_index:
                     self.stop(False)
@@ -261,12 +261,7 @@ class SBMediaPlayer(QLabel):
 
 
     def update_frame(self, frame_index, pixmap):
-        scaled_pixmap = pixmap.scaled(
-            self.width(),
-            self.height(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
+        scaled_pixmap = pixmap.scaled(self.width(), self.height(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
         self.setPixmap(scaled_pixmap)
 
         self.frame_index = frame_index

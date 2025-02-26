@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.7.6"
+APP_VERSION = "0.8.0"
 
 # Main UI
 DEFAULT_TITLE = "ShotBoard"
@@ -423,11 +423,28 @@ class ShotBoard(QMainWindow):
         self._stop_button.setStatusTip("Click to stop playing.")
         button_layout.addWidget(self._stop_button)
 
+        # Create a skip backward button
+        self._skip_bwd_button = QToolButton()
+        self._skip_bwd_button.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipBackward))
+        self._skip_bwd_button.clicked.connect(self.on_skip_bwd_clicked)
+        self._skip_bwd_button.setStatusTip("Skip to pprevious shot.")
+        button_layout.addWidget(self._skip_bwd_button)
+
+        # Create a skip forward button
+        self._skip_fwd_button = QToolButton()
+        self._skip_fwd_button.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        self._skip_fwd_button.clicked.connect(self.on_skip_fwd_clicked)
+        self._skip_fwd_button.setStatusTip("Skip to next shot.")
+        button_layout.addWidget(self._skip_fwd_button)
+
+        button_layout.addStretch()
+
         # Create an edge detection checkbox with a label
-        self._edgedetect_checkbox = QCheckBox("Lines")  
+        self._edgedetect_checkbox = QCheckBox("Lines")
         self._edgedetect_checkbox.toggled.connect(self.on_edge_detection_toggled)
         self._edgedetect_checkbox.setStatusTip("Check to apply 'Sobel' edge detection to the thumbnails.")
         self._edgedetect_checkbox.setChecked(False)
+        SBMediaPlayer.detect_edges = False
         ShotWidget.detect_edges = False
         button_layout.addWidget(self._edgedetect_checkbox)
 
@@ -438,6 +455,19 @@ class ShotBoard(QMainWindow):
         self._edgefactor_spinbox.setStatusTip("Set the contrast factor of the 'Sobel' edge detection algorhythm.")
         self._edgefactor_spinbox.setValue(1)
         button_layout.addWidget(self._edgefactor_spinbox)
+
+        # Zoom label
+        zoom_label = QLabel("Zoom")
+        zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        button_layout.addWidget(zoom_label)
+
+        # Create an zoom spinbox
+        self._zoom_spinbox = QSpinBox()
+        self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
+        self._zoom_spinbox.setRange(4, 10)
+        self._zoom_spinbox.setValue(DEFAULT_SHOT_WIDGET_SIZE)
+        self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
+        button_layout.addWidget(self._zoom_spinbox)
 
         # Create a split button
         self._split_button = QPushButton('Mark current frame as new shot')
@@ -510,9 +540,13 @@ class ShotBoard(QMainWindow):
         # button_layout.addStretch()
         # button_layout.addWidget(self._debug_button)
 
-        # Volume label
-        volume_label = QLabel("Volume")
-        volume_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Create a skip backward button
+        self._speaker_button = QToolButton()
+        self._speaker_button.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+        self._speaker_button.setCheckable(True)
+        self._speaker_button.setChecked(False)
+        self._speaker_button.clicked.connect(self.on_speaker_btn_toggled)
+        self._speaker_button.setStatusTip("Mute/unmute sound.")
 
         # Volume slider
         self._volume_slider = QSlider(Qt.Horizontal)
@@ -521,12 +555,12 @@ class ShotBoard(QMainWindow):
         self._volume_slider.mousePressEvent = self.on_volume_slider_click
         self._volume_slider.sliderMoved.connect(self.on_volume_slider_moved)
         self._volume_slider.setFixedWidth(150)
-        ShotWidget.volume = self._volume_slider.value() / 100
+        ShotWidget.volume = self._volume_slider.value() * 0.01
 
         # Create a layout for the volume slider and label
         volume_layout = QHBoxLayout()
         volume_layout.addStretch()  # Add stretch to push elements to the right
-        volume_layout.addWidget(volume_label)
+        volume_layout.addWidget(self._speaker_button)
         volume_layout.addWidget(self._volume_slider)
         volume_layout.setSpacing(5)  # Adjust spacing between label and slider
 
@@ -579,6 +613,8 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_open_video(self):
+        self.ask_to_save_if_dirty()
+
         file_dialog = QFileDialog()
         file_dialog.setAcceptMode(QFileDialog.AcceptOpen)
         file_dialog.setNameFilter("Video files (*.mp4 *.avi *.mkv)")
@@ -607,6 +643,9 @@ class ShotBoard(QMainWindow):
         if not self._video_path:
             QMessageBox.warning(self, "Warning", "Please load a video first.")
             return
+
+        self.ask_to_save_if_dirty()
+
         options = QFileDialog.Options()
         json_path, _ = QFileDialog.getOpenFileName(self, "Open Shot File", None, "Shot Files (*.json);;All Files (*)", options=options)
         self.open_shot_list(json_path)
@@ -682,7 +721,7 @@ class ShotBoard(QMainWindow):
             #         self._volume = max(self._volume - volume_increment, 0.0)  # Cap volume at 0.0
             #     self._volume_slider.setValue(self._volume)
             #     return True  # Event handled
-                    
+            
             elif event.type() == QEvent.KeyPress:
                 if event.key() == Qt.Key_Space:
                     self._play_button.click()  # Play / pause
@@ -745,12 +784,44 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_skip_bwd_clicked(self):
+        self.pause_video()
+        if not self._shot_widgets:
+            return
+        
+        frame_index = self._seek_spinbox.value()
+        start_frame_index, _ = self._db.get_start_end_frame_indexes(frame_index)
+        if frame_index > start_frame_index:
+            prev_shot_index = self._db.get_shot_index(start_frame_index)
+        else:
+            prev_shot_index = max(0, self._db.get_shot_index(start_frame_index) - 1)
+        prev_shot_widget = self._shot_widgets[prev_shot_index]
+        self._mediaplayer.seek(prev_shot_widget.get_start_frame_index())
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_skip_fwd_clicked(self):
+        self.pause_video()
+        if not self._shot_widgets:
+            return
+        
+        frame_index = self._seek_spinbox.value()
+        _, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)
+        if end_frame_index < self._frame_count:
+            next_shot_index = self._db.get_shot_index(end_frame_index)
+            next_shot_widget = self._shot_widgets[next_shot_index]
+            self._mediaplayer.seek(next_shot_widget.get_start_frame_index())
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_edge_detection_toggled(self, checked):
+        SBMediaPlayer.detect_edges = checked
         ShotWidget.detect_edges = checked
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_edge_factor_changed(self, value):
+        SBMediaPlayer.edge_factor = value
         ShotWidget.edge_factor = value
 
 
@@ -781,19 +852,32 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_speaker_btn_toggled(self, checked):
+        if checked:
+            self._speaker_button.setIcon(self.style().standardIcon(QStyle.SP_MediaVolumeMuted))
+            self.on_volume_slider_moved(0)
+        else:
+            self._speaker_button.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+            self.on_volume_slider_moved(self._volume_slider.value())
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_volume_slider_click(self, event):
         if event.button() == Qt.LeftButton:
             volume = int(self._volume_slider.minimum() + ((self._volume_slider.maximum() - self._volume_slider.minimum()) * event.x()) / self._volume_slider.width())
-            ShotWidget.volume = volume * 0.01
-            self._mediaplayer.set_volume(volume * 0.01)
+            self.on_volume_slider_moved(volume)
             event.accept()
         QSlider.mousePressEvent(self._volume_slider, event)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_volume_slider_moved(self, volume):
-        ShotWidget.volume = volume * 0.01
-        self._mediaplayer.set_volume(volume * 0.01)
+        if self._speaker_button.isChecked():
+            ShotWidget.volume = 0
+            self._mediaplayer.set_volume(0)
+        else:
+            ShotWidget.volume = volume * 0.01
+            self._mediaplayer.set_volume(volume * 0.01)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -835,11 +919,13 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_zoom_changed(self, value):
+        self.update_grid_layout()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_scroll(self):
         """Detect which ShotWidgets are visible in the scroll area."""
-        if not SHOT_WIDGET_DEFFERRED_LOADING:
-            return
-        
         viewport = self._scroll_area.viewport()
         scroll_pos = self._scroll_area.verticalScrollBar().value()
         viewport_rect = QRect(0, scroll_pos, viewport.width(), viewport.height())
@@ -851,7 +937,7 @@ class ShotBoard(QMainWindow):
         
         ShotWidget.thumbnail_manager.clear_priority_list()
         for shot_widget in visible_shot_widgets:
-            shot_widget.request_thumbnail(priority=True)
+            shot_widget.initialise_thumbnail(True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -926,9 +1012,12 @@ class ShotBoard(QMainWindow):
         self._seek_spinbox.setEnabled(enabled)
         self._play_button.setEnabled(enabled)
         self._stop_button.setEnabled(enabled)
+        self._skip_bwd_button.setEnabled(enabled)
+        self._skip_fwd_button.setEnabled(enabled)
         self._split_button.setEnabled(enabled)
         self._scan_button.setEnabled(enabled and not self.is_selection_empty())
         self._merge_button.setEnabled(enabled and not self.is_selection_empty())
+        self._zoom_spinbox.setEnabled(enabled)
         #self._detection_slider.setEnabled(enabled and not self.is_selection_empty())
 
 
@@ -954,9 +1043,8 @@ class ShotBoard(QMainWindow):
         self._db_path = None
         self._video_path = None
         self._fps = 0
-        if SHOT_WIDGET_DEFFERRED_LOADING:
-            ShotWidget.thumbnail_manager.clear()
-            ShotWidget.thumbnail_manager.set_video(None, None)
+        ShotWidget.thumbnail_manager.clear()
+        ShotWidget.thumbnail_manager.set_video(None, None)
         self.update_ui_state()
         self.update_window_title()
         self.statusBar().showMessage("Load a video.")
@@ -972,7 +1060,8 @@ class ShotBoard(QMainWindow):
 
 
     def create_shot_widget(self, widget_index, start_frame_index):
-        shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(start_frame_index))
+        num_img_per_row = self._zoom_spinbox.value()
+        shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(start_frame_index), num_img_per_row)
         shot_widget.hovered.connect(self.on_shot_widget_hovered)
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
         self._shot_widgets.insert(widget_index, shot_widget)
@@ -998,9 +1087,16 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_grid_layout(self):
+        # Disable updates to prevent tons of repaints
+        # self._scroll_area.setUpdatesEnabled(False)
+        num_img_per_row = self._zoom_spinbox.value()
+        widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
+        if self._shot_widgets:
+            resize_shot_widgets = (self._shot_widgets[0].geometry() != widget_size)
+
         progress_dialog = None
         if len(self._db) > 0:
-            if len(self._db) > 3:
+            if len(self._db) > 10:
                 # Create a progress dialog
                 progress_dialog = QProgressDialog("Updating shots...", "Cancel", 0, len(self._db), self)
                 progress_dialog.setWindowModality(Qt.WindowModal)
@@ -1011,9 +1107,13 @@ class ShotBoard(QMainWindow):
 
             i, j = 0, 0
             while i < len(self._shot_widgets) and j < len(self._db):
-                widget_start_frame_index = self._shot_widgets[i].get_start_frame_index()
+                shot_widget = self._shot_widgets[i]
                 db_start_frame_index = self._db[j]
 
+                if resize_shot_widgets:
+                    shot_widget.resize(num_img_per_row)
+
+                widget_start_frame_index = shot_widget.get_start_frame_index()
                 if widget_start_frame_index == db_start_frame_index:
                     # This widget is OK, move on to the next one
                     i += 1
@@ -1059,7 +1159,7 @@ class ShotBoard(QMainWindow):
         horz_spacing, vert_spacing = self._grid_layout.horizontalSpacing(), self._grid_layout.verticalSpacing()
 
         available_width = self._scroll_area.width() - (left_margin + right_margin) - 2  # Size of the framing itself
-        cell_size = SHOT_WIDGET_WIDTH
+        cell_size = self._shot_widgets[0].width() if self._shot_widgets else 128
         num_cols = 1 + max(0, (available_width - cell_size) // (cell_size + horz_spacing))
 
         # Add widgets to the grid layout in order
@@ -1079,6 +1179,9 @@ class ShotBoard(QMainWindow):
             widget.hide()
             widget.deleteLater()
 
+        # Re-enable updates and trigger a single repaint
+        # self._scroll_area.setUpdatesEnabled(True)
+        # self._scroll_area.update()
         self.update_status_bar()
         self.update_window_title()
 
@@ -1093,8 +1196,10 @@ class ShotBoard(QMainWindow):
         assert url
         if not url:
             return
-        
+
+        self.reset_all()        
         self.enable_ui(False)
+
         self._video_path = url.toLocalFile()
         self.update_window_title()
 
@@ -1112,18 +1217,12 @@ class ShotBoard(QMainWindow):
         self._seek_slider.setRange(0, self._frame_count - 1)
         self._seek_spinbox.setRange(0, self._frame_count - 1)
 
-        self._history.clear()
-        self._db.clear_shots()
         self._db.set_frame_count(self._frame_count)
         self._db.add_shot(0)  # Add a single shot covering the whole video
 
-        if SHOT_WIDGET_DEFFERRED_LOADING:
-            ShotWidget.thumbnail_manager.clear()
-            ShotWidget.thumbnail_manager.set_video(self._video_path, self._fps)
+        ShotWidget.thumbnail_manager.set_video(self._video_path, self._fps)
 
-        self.clear_shot_widgets()
         self.update_grid_layout()
-
         self.select_shot_widgets(0, 0)
         self.update_ui_state()
         self.enable_ui(True)
@@ -1144,9 +1243,8 @@ class ShotBoard(QMainWindow):
             self._db.clear_shots()
             self.deselect_all()
 
-        if SHOT_WIDGET_DEFFERRED_LOADING:
-            ShotWidget.thumbnail_manager.clear()
-            ShotWidget.thumbnail_manager.add_frame_indexes_to_queue(self._db.get_shots())
+        ShotWidget.thumbnail_manager.clear()
+        ShotWidget.thumbnail_manager.add_frame_indexes_to_queue(self._db.get_shots())
 
         self.update_status_bar()  # Display info right away as update_grid_layout() might take a long time to execute
         self.update_window_title()
@@ -1188,7 +1286,7 @@ class ShotBoard(QMainWindow):
         self.pause_video()
 
         # Get the current frame and evaluate the start and end frames of the shot
-        start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)  # integers
+        start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)
         if frame_index == start_frame_index or frame_index == end_frame_index - 1:
             return
         
@@ -1319,8 +1417,7 @@ class ShotBoard(QMainWindow):
                         # Add shot at the previous frame
                         cut_frame_index = frame_index - 1
                         shot_index = self._db.add_shot(cut_frame_index)
-                        if SHOT_WIDGET_DEFFERRED_LOADING:
-                            ShotWidget.thumbnail_manager.add_frame_index_to_queue(cut_frame_index)
+                        ShotWidget.thumbnail_manager.add_frame_index_to_queue(cut_frame_index)
                         self.seek_video(cut_frame_index)
 
                 # Shift SSIM values
@@ -1801,10 +1898,7 @@ class ShotBoard(QMainWindow):
         return save_path
 
 
-    def closeEvent(self, event):
-        if self._mediaplayer:
-            self._mediaplayer.stop()
-
+    def ask_to_save_if_dirty(self):
         # Save the database if dirty
         if self._db and self._db.is_dirty():
             if QMessageBox.question(
@@ -1812,6 +1906,13 @@ class ShotBoard(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
             ) == QMessageBox.Yes:
                 self.on_menu_save()
+
+
+    def closeEvent(self, event):
+        if self._mediaplayer:
+            self._mediaplayer.stop()
+
+        self.ask_to_save_if_dirty()
 
         event.accept()
 

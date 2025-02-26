@@ -54,7 +54,6 @@ class AudioPlayer(QThread):
             self._process = (
                 ffmpeg
                 .input(self._video_path, ss=self._start_pos)
-                .filter('volume', f'{self._volume}')
                 .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
                 .run_async(pipe_stdout=True, pipe_stderr=False)
             )
@@ -218,13 +217,12 @@ class VideoPlayer(QThread):
         TARGET_TIME_MS = 1000 / self._fps  # Desired frame interval in ms
 
         # Start audio thread
-        if self._volume > 0:
-            with QMutexLocker(self._process_mutex):  # 🔒
-                if not self._running:  # In case stop() was called before creating the thread
-                    self.safe_disconnect()
-                    return
-                self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume, self._speed)
-                self._audio_thread.start()
+        with QMutexLocker(self._process_mutex):  # 🔒
+            if not self._running:  # In case stop() was called before creating the thread
+                self.safe_disconnect()
+                return
+            self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume, self._speed)
+            self._audio_thread.start()
 
         frame_timer = QElapsedTimer()
 
