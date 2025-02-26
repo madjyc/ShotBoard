@@ -8,6 +8,9 @@ from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QMutexLocke
 from PyQt5.QtGui import QImage
 
 
+FFMPEG_FRAME_SEEK_OFFSET = 0.1  # Slight offset to prevent FFmpeg from rounding to nearest (previous) frame
+
+
 #
 # AUDIO PLAYER
 #

@@ -4,6 +4,7 @@ import ffmpeg
 import subprocess
 import os
 import queue
+from datetime import timedelta
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThreadPool, QRunnable, QEvent, QTimer, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker, QRect
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
@@ -69,7 +70,7 @@ class ThumbnailLoader(QRunnable):
 
     def run(self):
         """ Simulate loading an image by creating a black QPixmap """
-        START_POS = (self.frame_index - 0.5) / self.fps  # no offset for FFmpeg
+        START_POS = max(0, (self.frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self.fps)  # frame position in seconds
 
         # Construct FFmpeg command using ffmpeg-python
         with QMutexLocker(ThumbnailLoader.ffmpeg_mutex):
@@ -378,8 +379,8 @@ class ShotWidget(QFrame):
         """)
         self.frame_progress_bar.setMinimum(start_frame_index)
         self.frame_progress_bar.setMaximum(end_frame_index - 1)
+        self.frame_progress_bar.setFormat("Frame %v")  # By default
         self.frame_progress_bar.setValue(start_frame_index)
-        self.frame_progress_bar.setFormat("Frame %v")
         layout.addWidget(self.frame_progress_bar)
 
         self.setLayout(layout)

@@ -33,9 +33,10 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.8.1"
 
 # Main UI
+DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
 DEFAULT_TITLE = "ShotBoard"
 SPLITTER_HANDLE_WIDTH = 2
 
@@ -51,6 +52,9 @@ DEFAULT_DETECTION_SLIDER_VALUE = int(((SIM_DROP_THRESHOLD_DEFAULT - SIM_DROP_THR
 # UI colors
 VIDEO_BACKGROUND_COLOR = "#000000"  # Black
 BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
+
+# Timestamp
+SLIDER_TIMESTAMP_MILLISECONDS = True
 
 # Debug
 LOG_FUNCTION_NAMES = False
@@ -166,7 +170,7 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
-    def __init__(self, geom=QRect(100, 100, 800, 600)):
+    def __init__(self, geom=DEFAULT_GEOMETRY):
         super().__init__()
 
         self._db = ShotBoardDb()
@@ -393,6 +397,12 @@ class ShotBoard(QMainWindow):
         slider_layout = QHBoxLayout()
         top_layout.addLayout(slider_layout)
 
+        # Timestamp label
+        timestamp = "0:00:00:000" if SLIDER_TIMESTAMP_MILLISECONDS else "0:00:00"
+        self._timestamp_label = QLabel(timestamp)
+        self._timestamp_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        slider_layout.addWidget(self._timestamp_label)
+
         self._seek_slider = QSlider(Qt.Horizontal)
         self._seek_slider.setRange(0, 0)
         self._seek_slider.mousePressEvent = self.on_seek_slider_click
@@ -442,8 +452,8 @@ class ShotBoard(QMainWindow):
         # Create an edge detection checkbox with a label
         self._edgedetect_checkbox = QCheckBox("Lines")
         self._edgedetect_checkbox.toggled.connect(self.on_edge_detection_toggled)
-        self._edgedetect_checkbox.setStatusTip("Check to apply 'Sobel' edge detection to the thumbnails.")
         self._edgedetect_checkbox.setChecked(False)
+        self._edgedetect_checkbox.setStatusTip("Check to apply 'Sobel' edge detection to the thumbnails.")
         SBMediaPlayer.detect_edges = False
         ShotWidget.detect_edges = False
         button_layout.addWidget(self._edgedetect_checkbox)
@@ -452,22 +462,9 @@ class ShotBoard(QMainWindow):
         self._edgefactor_spinbox = QSpinBox()
         self._edgefactor_spinbox.setRange(1, 10)
         self._edgefactor_spinbox.valueChanged.connect(self.on_edge_factor_changed)
-        self._edgefactor_spinbox.setStatusTip("Set the contrast factor of the 'Sobel' edge detection algorhythm.")
         self._edgefactor_spinbox.setValue(1)
+        self._edgefactor_spinbox.setStatusTip("Set the contrast factor of the 'Sobel' edge detection algorhythm.")
         button_layout.addWidget(self._edgefactor_spinbox)
-
-        # Zoom label
-        zoom_label = QLabel("Zoom")
-        zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        button_layout.addWidget(zoom_label)
-
-        # Create an zoom spinbox
-        self._zoom_spinbox = QSpinBox()
-        self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
-        self._zoom_spinbox.setRange(4, 10)
-        self._zoom_spinbox.setValue(DEFAULT_SHOT_WIDGET_SIZE)
-        self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
-        button_layout.addWidget(self._zoom_spinbox)
 
         # Create a split button
         self._split_button = QPushButton('Mark current frame as new shot')
@@ -483,15 +480,15 @@ class ShotBoard(QMainWindow):
         self._scan_button.setStyleSheet(f"background-color: {SHOT_WIDGET_RESCAN_COLOR};")
         self._scan_button.setStatusTip("Scan (or re-scan) the selected shots using the current similarity tolerance value.")
 
-        # Create a double condition checkbox with a label
-        self._double_condition_checkbox = QCheckBox("Double")  
-        self._double_condition_checkbox.setChecked(True)
-        self._double_condition_checkbox.setStatusTip("Check to detect two consecutive differences in similarity (i.e. V-shaped).")
-
         # Create a plot checkbox with a label
         self._plot_checkbox = QCheckBox("Monitor")  
         self._plot_checkbox.setChecked(False)
         self._plot_checkbox.setStatusTip("Check to display a real-time plot of SSIM values during frame analysis. Close the graph when done.")
+
+        # Create a double condition checkbox with a label
+        self._double_condition_checkbox = QCheckBox("Stabilized")  
+        self._double_condition_checkbox.setChecked(True)
+        self._double_condition_checkbox.setStatusTip("Check to detect shots with the frame similarity pattern: \"similar→different→similar\". Uncheck to simply use: \"similar→different\" (more error prone).")
 
         # Detection level slider
         self._detection_slider = QSlider(Qt.Horizontal)
@@ -500,27 +497,28 @@ class ShotBoard(QMainWindow):
         #self._detection_slider.mousePressEvent = self.on_detection_slider_click
         self._detection_slider.sliderMoved.connect(self.on_detection_slider_moved)
         self._detection_slider.setFixedWidth(100)
+        self._detection_slider.setStatusTip("Set the frame similarity threshold. Lower values require lesser difference between consecutive frames to detect a new shot.")
 
         # Detection label
         self._detection_label = QLabel(f"{self.convert_detection_slider_value_to_ssim_drop_threshold(self._detection_slider.value()):.2f}")
         self._detection_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        # Create a downscale spinbox
+        # Create a downscale spinbox (NOT DISPLAYED, DEBUG ONLY)
         self._downscale_spinbox = QSpinBox()
-        self._downscale_spinbox.setStatusTip("Set the width of the downscaled image size to ease shot detection.")
         self._downscale_spinbox.setRange(64, 1280)
         self._downscale_spinbox.setSingleStep(64)
         self._downscale_spinbox.setValue(128)
+        self._downscale_spinbox.setStatusTip("Set the width of the downscaled image size to ease shot detection.")
 
         # Create a layout for the detection widgets
         detection_layout = QHBoxLayout()
         detection_layout.addStretch()  # Add stretch to push elements to the right
         detection_layout.addWidget(self._scan_button)
-        detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._plot_checkbox)
+        detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._detection_slider)
         detection_layout.addWidget(self._detection_label)
-        detection_layout.addWidget(self._downscale_spinbox)
+        # detection_layout.addWidget(self._downscale_spinbox)
         detection_layout.setSpacing(5)  # Adjust spacing between label and slider
 
         button_layout.addStretch()
@@ -540,6 +538,20 @@ class ShotBoard(QMainWindow):
         # button_layout.addStretch()
         # button_layout.addWidget(self._debug_button)
 
+        # Zoom label
+        zoom_label = QLabel("Zoom")
+        zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        button_layout.addStretch()
+        button_layout.addWidget(zoom_label)
+
+        # Create an zoom spinbox
+        self._zoom_spinbox = QSpinBox()
+        self._zoom_spinbox.setRange(4, 10)
+        self._zoom_spinbox.setValue(DEFAULT_SHOT_WIDGET_SIZE)
+        self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
+        self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
+        button_layout.addWidget(self._zoom_spinbox)
+
         # Create a skip backward button
         self._speaker_button = QToolButton()
         self._speaker_button.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
@@ -555,11 +567,12 @@ class ShotBoard(QMainWindow):
         self._volume_slider.mousePressEvent = self.on_volume_slider_click
         self._volume_slider.sliderMoved.connect(self.on_volume_slider_moved)
         self._volume_slider.setFixedWidth(150)
+        self._volume_slider.setStatusTip("Set the volume of the video.")
         ShotWidget.volume = self._volume_slider.value() * 0.01
 
         # Create a layout for the volume slider and label
         volume_layout = QHBoxLayout()
-        volume_layout.addStretch()  # Add stretch to push elements to the right
+        volume_layout.addStretch()
         volume_layout.addWidget(self._speaker_button)
         volume_layout.addWidget(self._volume_slider)
         volume_layout.setSpacing(5)  # Adjust spacing between label and slider
@@ -585,10 +598,10 @@ class ShotBoard(QMainWindow):
         # Wrap the grid layout in a scroll area
         self._scroll_area = self.ClickableScrollArea()
         self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setStatusTip("Click on a shot to play.")
         self._scroll_area.setStyleSheet(f"background-color: {BOARD_BACKGROUND_COLOR};")
         self._scroll_area.clicked.connect(self.cmd_deselect_all)
         self._scroll_area.verticalScrollBar().valueChanged.connect(self.on_scroll)
+        self._scroll_area.setStatusTip("Click on a shot to play.")
         scrollarea_layout.addWidget(self._scroll_area)
 
         # Create a container widget to hold the grid layout
@@ -789,8 +802,12 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return
         
+        # Find which shot widget contains the current frame index.
         frame_index = self._seek_spinbox.value()
         start_frame_index, _ = self._db.get_start_end_frame_indexes(frame_index)
+
+        # Skip to the beginning of that shot if frame_index is past the beginning.
+        # Skip to the previous shot if frame_index is already at the beginning.
         if frame_index > start_frame_index:
             prev_shot_index = self._db.get_shot_index(start_frame_index)
         else:
@@ -805,6 +822,7 @@ class ShotBoard(QMainWindow):
         if not self._shot_widgets:
             return
         
+        # Jump to the beginning of the next shot if it exists.
         frame_index = self._seek_spinbox.value()
         _, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)
         if end_frame_index < self._frame_count:
@@ -978,12 +996,18 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_window_title(self):
-        title = DEFAULT_TITLE
-        if self._db_path:
-            title += f" - {os.path.basename(self._db_path)}"
+        title = f"{DEFAULT_TITLE} {APP_VERSION}"
+
+        if self._video_path:
+            title += f" | Video: {os.path.basename(self._video_path)}"
         else:
-            title += " - (undefined)"
-    
+            title += " | Video: (undefined)"
+
+        if self._db_path:
+            title += f" | Shot List: {os.path.basename(self._db_path)}"
+        else:
+            title += " | Shot List: (undefined)"
+
         # Add '*' if database has unsaved changes
         if self._db.is_dirty():
             title += " *"
@@ -993,16 +1017,16 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_status_bar(self):
+        ratio = self._frame_width / self._frame_height if self._frame_height > 0 else 0
         duration_hms = str(datetime.timedelta(seconds=int(self._duration)))
         duration_h = self._duration / 3600 if self._duration > 0 else 1  # Prevent division by zero
-        shots_per_hour = round(len(self._db) / duration_h)
+        shots_per_2_hours = round(len(self._db) / duration_h) * 2
 
         self._info_label.setText(
-            f"FPS: {self._fps:.3f} | "
-            f"Resolution: {self._frame_width}x{self._frame_height} | "
             f"Duration: {duration_hms} | "
-            f"Shots: {len(self._db)} | "
-            f"Shots/hour: {shots_per_hour}"
+            f"FPS: {self._fps:.3f} | "
+            f"Resolution: {self._frame_width}x{self._frame_height} ({ratio:.2f}) | "
+            f"Shots: {len(self._db)} (avg. {shots_per_2_hours} shots/2-hours)"
         )
 
     
@@ -1027,6 +1051,18 @@ class ShotBoard(QMainWindow):
 
         if self._seek_slider.value() != frame_index:
             self._seek_slider.setValue(frame_index)
+
+            elapsed_time_s = frame_index / self._fps
+            if SLIDER_TIMESTAMP_MILLISECONDS:
+                hours = int(elapsed_time_s // 3600)
+                minutes = int((elapsed_time_s % 3600) // 60)
+                seconds = int(elapsed_time_s % 60)
+                milliseconds = int((elapsed_time_s - int(elapsed_time_s)) * 1000)
+                timestamp = f"{hours:01}:{minutes:02}:{seconds:02}:{milliseconds:03}"
+            else:
+                timestamp = str(datetime.timedelta(seconds=int(elapsed_time_s)))
+            self._timestamp_label.setText(timestamp)
+
         if self._seek_spinbox.value() != frame_index:
             self._seek_spinbox.setValue(frame_index)
 
@@ -1323,7 +1359,7 @@ class ShotBoard(QMainWindow):
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        START_POS = start_frame_index / self._fps  # frame position in seconds
+        START_POS = max(0, (start_frame_index - 0) / self._fps)  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
@@ -1525,7 +1561,7 @@ class ShotBoard(QMainWindow):
         shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
         start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
-        START_POS = start_frame_index / self._fps
+        START_POS = max(0, (start_frame_index - 0) / self._fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1593,7 +1629,7 @@ class ShotBoard(QMainWindow):
         self.pause_video()
 
         # Calculate timestamp in seconds
-        START_POS = (frame_index - 0.5) / self._fps
+        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1864,7 +1900,7 @@ class ShotBoard(QMainWindow):
 
 
     def frame_index_to_ms(self, frame_index):
-        return max(0, int(frame_index * 1000 / self._fps))  # in milliseconds
+        return int(frame_index * 1000 / self._fps)  # in milliseconds
 
 
     def ms_to_frame_index(self, time_ms):
@@ -1937,7 +1973,7 @@ if __name__ == '__main__':
     # app.setPalette(palette)
 
     # Create the main window
-    window = ShotBoard(QRect(100, 100, 1024, 800))
+    window = ShotBoard()
     window.show()
 
     sys.exit(app.exec_())
