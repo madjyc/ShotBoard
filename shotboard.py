@@ -33,12 +33,11 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.1"
+APP_VERSION = "0.8.2"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
 DEFAULT_TITLE = "ShotBoard"
-SPLITTER_HANDLE_WIDTH = 2
 
 # SSIM shot detection
 SIM_DROP_THRESHOLD_MIN = 0.05
@@ -196,7 +195,7 @@ class ShotBoard(QMainWindow):
         # Create the top and bottom widgets
         top_widget = self.create_top_widget()
         bottom_widget = self.create_bottom_widget()
-        
+
         # Create a central widget to hold the splitter
         central_widget = QWidget()
         central_layout = QVBoxLayout(central_widget)
@@ -208,18 +207,8 @@ class ShotBoard(QMainWindow):
         splitter.addWidget(top_widget)
         splitter.addWidget(bottom_widget)
         splitter.setSizes([geom.height() // 2, geom.height() // 2])
-        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
-        splitter.setStyleSheet(f"""
-            QSplitter::handle {{
-                background-color: darkgray;
-            }}
-            QSplitter::handle:vertical {{
-                height: {SPLITTER_HANDLE_WIDTH}px;
-            }}
-            QSplitter::handle:horizontal {{
-                width: {SPLITTER_HANDLE_WIDTH}px;
-            }}
-        """)
+        splitter.setHandleWidth(0)
+
         # Add the splitter to the central layout
         central_layout.addWidget(splitter)
 
@@ -590,7 +579,7 @@ class ShotBoard(QMainWindow):
         bottom_layout = QVBoxLayout()
         bottom_widget.setLayout(bottom_layout)
         margins = bottom_layout.contentsMargins()
-        bottom_layout.setContentsMargins(0, margins.top(), 0, margins.bottom())
+        bottom_layout.setContentsMargins(0, 0, 0, margins.bottom())
 
         scrollarea_layout = QHBoxLayout()
         bottom_layout.addLayout(scrollarea_layout)

@@ -4,7 +4,7 @@ import ffmpeg
 import subprocess
 import os
 import queue
-from datetime import timedelta
+import bisect
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThreadPool, QRunnable, QEvent, QTimer, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker, QRect
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
@@ -569,9 +569,9 @@ class ShotWidgetManager:
     hovered = pyqtSignal(bool)  # Signal includes a boolean to indicate if the mouse cursor is entering (True) or leaving (False) the widget
     clicked = pyqtSignal(bool)  # Signal includes a boolean to indicate Shift key status
 
-
     def __init__(self):
-        self._shot_widgets = {}
+        self.shot_widgets = {}
+        self.start_frame_indexes = []  # List to store keys in sorted order
 
 
     def __getitem__(self, frame_index):
@@ -579,7 +579,7 @@ class ShotWidgetManager:
         Allows accessing ShotWidget instances using the [] operator.
         Example: shot_widget = manager[frame_index]
         """
-        return self._shot_widgets[frame_index]
+        return self.shot_widgets[frame_index]
 
 
     def __setitem__(self, frame_index, shot_widget):
@@ -589,7 +589,13 @@ class ShotWidgetManager:
         """
         if not isinstance(shot_widget, ShotWidget):
             raise TypeError("Value must be an instance of ShotWidget")
-        self._shot_widgets[frame_index] = shot_widget
+
+        # Add or update the ShotWidget in the dictionary
+        self.shot_widgets[frame_index] = shot_widget
+
+        # Update the sorted keys list
+        if frame_index not in self.start_frame_indexes:
+            bisect.insort(self.start_frame_indexes, frame_index)
 
 
     def __delitem__(self, frame_index):
@@ -597,7 +603,11 @@ class ShotWidgetManager:
         Allows deleting ShotWidget instances using the del operator.
         Example: del manager[frame_index]
         """
-        del self._shot_widgets[frame_index]
+        del self.shot_widgets[frame_index]
+
+        # Remove the key from the sorted keys list
+        if frame_index in self.start_frame_indexes:
+            self.start_frame_indexes.remove(frame_index)
 
 
     def __contains__(self, frame_index):
@@ -605,7 +615,7 @@ class ShotWidgetManager:
         Allows checking if a frame_index exists in the manager using the 'in' operator.
         Example: if frame_index in manager:
         """
-        return frame_index in self._shot_widgets
+        return frame_index in self.start_frame_indexes
 
 
     def __len__(self):
@@ -613,7 +623,7 @@ class ShotWidgetManager:
         Returns the number of ShotWidget instances in the manager.
         Example: count = len(manager)
         """
-        return len(self._shot_widgets)
+        return len(self.shot_widgets)
 
 
     def __iter__(self):
@@ -621,7 +631,7 @@ class ShotWidgetManager:
         Allows iterating over the frame_index keys in the manager.
         Example: for frame_index in manager:
         """
-        return iter(self._shot_widgets)
+        return iter(self.start_frame_indexes)  # Iterate over sorted keys
 
 
     def keys(self):
@@ -629,7 +639,8 @@ class ShotWidgetManager:
         Returns a list of all frame_index keys in the manager.
         Example: keys = manager.keys()
         """
-        return self._shot_widgets.keys()
+        # return self.shot_widgets.keys()
+        return self.start_frame_indexes  # Return sorted keys
 
 
     def values(self):
@@ -637,7 +648,8 @@ class ShotWidgetManager:
         Returns a list of all ShotWidget instances in the manager.
         Example: shot_widgets = manager.values()
         """
-        return self._shot_widgets.values()
+        # return self.shot_widgets.values()  # NOT SORTED
+        return [self.shot_widgets[key] for key in self.start_frame_indexes]  # Return values in sorted order
 
 
     def items(self):
@@ -645,7 +657,8 @@ class ShotWidgetManager:
         Returns a list of (frame_index, ShotWidget) pairs in the manager.
         Example: items = manager.items()
         """
-        return self._shot_widgets.items()
+        # return self.shot_widgets.items()  # NOT SORTED
+        return [(key, self.shot_widgets[key]) for key in self.start_frame_indexes]  # Return items in sorted order
 
 
     def get(self, frame_index, default=None):
@@ -653,7 +666,7 @@ class ShotWidgetManager:
         Returns the ShotWidget for the given frame_index, or a default value if not found.
         Example: shot_widget = manager.get(frame_index, default_shot_widget)
         """
-        return self._shot_widgets.get(frame_index, default)
+        return self.shot_widgets.get(frame_index, default)
 
 
     def clear(self):
@@ -661,7 +674,8 @@ class ShotWidgetManager:
         Removes all ShotWidget instances from the manager.
         Example: manager.clear()
         """
-        self._shot_widgets.clear()
+        self.shot_widgets.clear()
+        self.start_frame_indexes.clear()
 
 
     def pop(self, frame_index, default=None):
@@ -669,7 +683,13 @@ class ShotWidgetManager:
         Removes and returns the ShotWidget for the given frame_index, or a default value if not found.
         Example: shot_widget = manager.pop(frame_index)
         """
-        return self._shot_widgets.pop(frame_index, default)
+        shot_widget = self.shot_widgets.pop(frame_index, default)
+
+        # Remove the key from the sorted keys list
+        if frame_index in self.start_frame_indexes:
+            self.start_frame_indexes.remove(frame_index)
+
+        return shot_widget
 
 
     def update(self, other):
@@ -680,7 +700,8 @@ class ShotWidgetManager:
         for frame_index, shot_widget in other.items():
             if not isinstance(shot_widget, ShotWidget):
                 raise TypeError("Value must be an instance of ShotWidget")
-        self._shot_widgets.update(other)
+            # self.shot_widgets.update(other)  # NOT SORTED
+            self[frame_index] = shot_widget  # Use __setitem__ to ensure sorted_keys is updated
 
 
     def __repr__(self):
@@ -688,7 +709,7 @@ class ShotWidgetManager:
         Returns a string representation of the manager.
         Example: print(manager)
         """
-        return f"ShotWidgetManager({self._shot_widgets})"
+        return f"ShotWidgetManager({self.shot_widgets})"
 
 
     def __del__(self):
@@ -696,7 +717,7 @@ class ShotWidgetManager:
         Things to do when the object is about to be deleted
         """
         pass
- 
+
 
 if __name__ == "__main__":
     print(f"\033[91mTHIS MODULE FILE IS NOT MEANT TO BE RUN!\033[0m")

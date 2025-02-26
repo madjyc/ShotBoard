@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.8.1-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.8.2-blue.svg)
 
-# ShotBoard v0.8.1
+# ShotBoard v0.8.2
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -130,7 +130,7 @@ Tip: check <kbd>Lines</kbd> BEFORE loading a saved shot list to display all thum
 2. Click on **File > Export... > Export Frame** or **File > Export As... > Export Frame As**.
 
 ## Tips
-- Raise or lower the horizontal splitter to give more room to the video or the board.
+- Raise the top of the board to give it more room.
 Although ShotBoard will successfully detect most of the shots, it may struggle when:
 - Transitions are blurry (e.g. fading to white or black, crossfading, strong motion blur)
 - The lighting is stroboscopic (e.g. lightning, flashing lights)
