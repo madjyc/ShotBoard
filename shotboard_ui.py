@@ -11,11 +11,16 @@ from PyQt5.QtGui import QImage, QPixmap
 
 
 # Image dimension for storage
-STORED_THUMBNAIL_SIZE = (1024, 576) # h = w * 0.5625
+STORED_IMAGE_SIZE = (1024, 576) # h = w * 0.5625
 
 SHOT_WIDGET_SELECT_COLOR = "#f9a825"  # orange
 SHOT_WIDGET_MARGIN = 4  # also margin between the scrollarea frame and the widgets
-SHOT_WIDGET_SIZES = {  # w = int(1872/num_images - 16), h = round(w * 0.5625)
+
+# total width target = 1866
+# target ratio = 16/9
+# widget width = int(1872/num_images - 16)
+# widget height = round(w * 0.5625)
+SHOT_IMAGE_SIZES = {
     4: (452, 254),
     5: (358, 201),
     6: (296, 167),
@@ -24,7 +29,7 @@ SHOT_WIDGET_SIZES = {  # w = int(1872/num_images - 16), h = round(w * 0.5625)
     9: (192, 108),
     10: (171, 96)
 }
-DEFAULT_SHOT_WIDGET_SIZE = 10
+DEFAULT_SHOT_IMAGE_SIZE = 10
 
 SHOT_WIDGET_PROGRESSBAR_COLOR = "#3a9ad9" #"#0284eb"  # blue
 SHOT_WIDGET_PROGRESSBAR_HEIGHT = 15
@@ -92,11 +97,11 @@ class ThumbnailLoader(QRunnable):
                 self.signals.thumbnail_failed.emit(self.frame_index)
                 return
 
-            pixmap = QPixmap(STORED_THUMBNAIL_SIZE[0], STORED_THUMBNAIL_SIZE[1])
+            pixmap = QPixmap(STORED_IMAGE_SIZE[0], STORED_IMAGE_SIZE[1])
             if pixmap.loadFromData(out):
                 pixmap = pixmap.scaled(
-                    STORED_THUMBNAIL_SIZE[0], 
-                    STORED_THUMBNAIL_SIZE[1], 
+                    STORED_IMAGE_SIZE[0], 
+                    STORED_IMAGE_SIZE[1], 
                     Qt.KeepAspectRatio, 
                     Qt.SmoothTransformation  # For some reason, Qt.SmoothTransformation works fine here, but not downstream
                 )
@@ -108,7 +113,7 @@ class ThumbnailLoader(QRunnable):
 
 
 ##
-## THUMBNAIL MANAGER
+## IMAGE MANAGER
 ##
 
 
@@ -327,25 +332,37 @@ class ShotWidget(QFrame):
 
 
     @staticmethod
+    def evaluate_image_size(num_img_per_row):
+        if num_img_per_row in SHOT_IMAGE_SIZES:
+            image_size = SHOT_IMAGE_SIZES[num_img_per_row]
+            return image_size
+        else:
+            raise KeyError(f"Error - Unkown number of images per row {num_img_per_row}")
+
+
+    @staticmethod
     def evaluate_widget_size(num_img_per_row):
-        if num_img_per_row in SHOT_WIDGET_SIZES:
-            image_size = SHOT_WIDGET_SIZES[num_img_per_row]
-            widget_size = (image_size[0] + (2 * SHOT_WIDGET_MARGIN) + 2, image_size[1] + SHOT_WIDGET_PROGRESSBAR_HEIGHT + (2 * SHOT_WIDGET_MARGIN) + 2)
+        if num_img_per_row in SHOT_IMAGE_SIZES:
+            image_size = SHOT_IMAGE_SIZES[num_img_per_row]
+            widget_size = (image_size[0] + (2 * SHOT_WIDGET_MARGIN) + 2, image_size[1] + SHOT_WIDGET_PROGRESSBAR_HEIGHT + (3 * SHOT_WIDGET_MARGIN) + 2)
             return widget_size
         else:
-            raise KeyError(f"Key {num_img_per_row} not found in SHOT_WIDGET_SIZES")
+            raise KeyError(f"Error - Unkown number of images per row {num_img_per_row}")
 
 
-    def __init__(self, video_path, fps, start_frame_index, end_frame_index, num_img_per_row):
+    def __init__(self, video_path, fps, shot_number, start_frame_index, end_frame_index, num_img_per_row):
         super().__init__()
         self.videoplayer = None
         self.video_path = video_path
         self.fps = fps
         self.start_frame_index = start_frame_index  # included
         self.end_frame_index = end_frame_index  # excluded (i.e. next frame's start_frame_index)
+        self.shot_number = shot_number
         self.is_selected = False
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN)
+        layout.setSpacing(SHOT_WIDGET_MARGIN)
 
         # Create a QLabel to display the thumbnail
         self.image_label = QLabel()
@@ -379,29 +396,28 @@ class ShotWidget(QFrame):
         """)
         self.frame_progress_bar.setMinimum(start_frame_index)
         self.frame_progress_bar.setMaximum(end_frame_index - 1)
-        self.frame_progress_bar.setFormat("Frame %v")  # By default
-        self.frame_progress_bar.setValue(start_frame_index)
+        self.update_progress_bar(start_frame_index)
         layout.addWidget(self.frame_progress_bar)
 
         self.setLayout(layout)
-        layout.setContentsMargins(SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN)
 
         self.setFrameStyle(QFrame.Box)
         self.resize(num_img_per_row)
         self.thumbnail_loaded = False
     
 
+    def set_shot_number(self, number):
+        self.shot_number = number
+
+
     def resize(self, num_img_per_row):
-        if num_img_per_row in SHOT_WIDGET_SIZES:
-            image_size = SHOT_WIDGET_SIZES[num_img_per_row]
-            self.image_label.setMaximumSize(image_size[0], image_size[1])
+        image_size = ShotWidget.evaluate_image_size(num_img_per_row)
+        self.image_label.setMaximumSize(image_size[0], image_size[1])
 
-            widget_size = (image_size[0] + (2 * SHOT_WIDGET_MARGIN) + 2, image_size[1] + SHOT_WIDGET_PROGRESSBAR_HEIGHT + (2 * SHOT_WIDGET_MARGIN) + 2)
-            self.setFixedSize(widget_size[0], widget_size[1])
+        widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
+        self.setFixedSize(widget_size[0], widget_size[1])
 
-            self.initialise_thumbnail(False)
-        else:
-            raise KeyError(f"Key {num_img_per_row} not found in SHOT_WIDGET_SIZES")
+        self.initialise_thumbnail(False)
 
 
     def is_thumbnail_loaded(self):
@@ -424,7 +440,7 @@ class ShotWidget(QFrame):
         assert end_frame_index > self.start_frame_index
         self.end_frame_index = end_frame_index
         self.frame_progress_bar.setMaximum(end_frame_index - 1)
-        self.frame_progress_bar.setValue(self.start_frame_index)
+        self.update_progress_bar(self.start_frame_index)
         if reset_thumbnail:
             self.initialise_thumbnail(True)
 
@@ -539,8 +555,13 @@ class ShotWidget(QFrame):
     def update_frame(self, frame_index, pixmap):
         scaled_pixmap = pixmap.scaled(self.image_label.maximumWidth(), self.image_label.maximumHeight(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
         self.image_label.setPixmap(scaled_pixmap)
-        self.frame_progress_bar.setValue(frame_index)
+        self.update_progress_bar(frame_index)
         self.thumbnail_loaded = True
+
+
+    def update_progress_bar(self, frame_index):
+        self.frame_progress_bar.setValue(frame_index)
+        self.frame_progress_bar.setFormat(f"🎥{self.shot_number}   🎞%v")
 
 
     def closeEvent(self, event):

@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.2"
+APP_VERSION = "0.8.3"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
@@ -536,7 +536,7 @@ class ShotBoard(QMainWindow):
         # Create an zoom spinbox
         self._zoom_spinbox = QSpinBox()
         self._zoom_spinbox.setRange(4, 10)
-        self._zoom_spinbox.setValue(DEFAULT_SHOT_WIDGET_SIZE)
+        self._zoom_spinbox.setValue(DEFAULT_SHOT_IMAGE_SIZE)
         self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
         self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
         button_layout.addWidget(self._zoom_spinbox)
@@ -988,14 +988,14 @@ class ShotBoard(QMainWindow):
         title = f"{DEFAULT_TITLE} {APP_VERSION}"
 
         if self._video_path:
-            title += f" | Video: {os.path.basename(self._video_path)}"
+            title += f"   Video: {os.path.basename(self._video_path)}"
         else:
-            title += " | Video: (undefined)"
+            title += "   Video: (undefined)"
 
         if self._db_path:
-            title += f" | Shot List: {os.path.basename(self._db_path)}"
+            title += f"   Shot List: {os.path.basename(self._db_path)}"
         else:
-            title += " | Shot List: (undefined)"
+            title += "   Shot List: (undefined)"
 
         # Add '*' if database has unsaved changes
         if self._db.is_dirty():
@@ -1012,9 +1012,9 @@ class ShotBoard(QMainWindow):
         shots_per_2_hours = round(len(self._db) / duration_h) * 2
 
         self._info_label.setText(
-            f"Duration: {duration_hms} | "
-            f"FPS: {self._fps:.3f} | "
-            f"Resolution: {self._frame_width}x{self._frame_height} ({ratio:.2f}) | "
+            f"Duration: {duration_hms}   "
+            f"FPS: {self._fps:.3f}   "
+            f"Resolution: {self._frame_width}x{self._frame_height} ({ratio:.2f})   "
             f"Shots: {len(self._db)} (avg. {shots_per_2_hours} shots/2-hours)"
         )
 
@@ -1086,7 +1086,7 @@ class ShotBoard(QMainWindow):
 
     def create_shot_widget(self, widget_index, start_frame_index):
         num_img_per_row = self._zoom_spinbox.value()
-        shot_widget = ShotWidget(self._video_path, self._fps, *self._db.get_start_end_frame_indexes(start_frame_index), num_img_per_row)
+        shot_widget = ShotWidget(self._video_path, self._fps, widget_index, *self._db.get_start_end_frame_indexes(start_frame_index), num_img_per_row)
         shot_widget.hovered.connect(self.on_shot_widget_hovered)
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
         self._shot_widgets.insert(widget_index, shot_widget)
@@ -1134,6 +1134,8 @@ class ShotBoard(QMainWindow):
             while i < len(self._shot_widgets) and j < len(self._db):
                 shot_widget = self._shot_widgets[i]
                 db_start_frame_index = self._db[j]
+
+                shot_widget.set_shot_number(i)
 
                 if resize_shot_widgets:
                     shot_widget.resize(num_img_per_row)
