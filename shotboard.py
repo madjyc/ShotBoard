@@ -14,14 +14,13 @@ from shotboard_ui import *
 from shotboard_cmd import *
 from shotboard_med import *
 
-import ffmpeg
+import subprocess
 import cv2
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 import os
 import sys
-import subprocess
 import datetime
 from functools import wraps
 from inspect import signature
@@ -33,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.3"
+APP_VERSION = "0.8.4"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
@@ -178,12 +177,7 @@ class ShotBoard(QMainWindow):
         self._shot_widgets = []
         self._selection_first_index = None
         self._selection_last_index = None
-        self._video_path = None
-        self._fps = 0
-        self._frame_count = None
-        self._frame_width = 0
-        self._frame_height = 0
-        self._duration = 0
+        self._video_info = VideoInfo()
         self._ui_enabled = True
 
         self.update_window_title()
@@ -220,6 +214,12 @@ class ShotBoard(QMainWindow):
         self.create_status_bar()
         self.statusBar().showMessage("Load a video.")
         self.update_ui_state()
+
+        # TODO: Not a satisfying solution yet
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(500)
+        self._resize_timer.timeout.connect(self.delayed_update)
 
 
     ##
@@ -535,7 +535,7 @@ class ShotBoard(QMainWindow):
 
         # Create an zoom spinbox
         self._zoom_spinbox = QSpinBox()
-        self._zoom_spinbox.setRange(4, 10)
+        self._zoom_spinbox.setRange(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX)
         self._zoom_spinbox.setValue(DEFAULT_SHOT_IMAGE_SIZE)
         self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
         self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
@@ -597,6 +597,7 @@ class ShotBoard(QMainWindow):
         grid_widget = QWidget()
         self._grid_layout = QGridLayout()
         self._grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._grid_layout.setSpacing(GRID_LAYOUT_SPACING)
         grid_widget.setLayout(self._grid_layout)
         self._scroll_area.setWidget(grid_widget)
 
@@ -625,8 +626,8 @@ class ShotBoard(QMainWindow):
             self.set_video(url)
 
             # Check for a matching JSON file
-            if self._video_path:
-                json_path = os.path.splitext(self._video_path)[0] + ".json"
+            if self._video_info.video_path:
+                json_path = os.path.splitext(self._video_info.video_path)[0] + ".json"
                 if os.path.exists(json_path):
                     json_filename = os.path.basename(json_path)  # Extract filename only
                     reply = QMessageBox.question(
@@ -642,7 +643,7 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_open_shotlist(self):
-        if not self._video_path:
+        if not self._video_info.video_path:
             QMessageBox.warning(self, "Warning", "Please load a video first.")
             return
 
@@ -701,12 +702,19 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def resizeEvent(self, event):
+        self._resize_timer.start()
+        # self._scroll_area.setUpdatesEnabled(False)
         super().resizeEvent(event)
+
+
+    def delayed_update(self):
+        # self._scroll_area.setUpdatesEnabled(True)
         self.update_grid_layout()
 
 
     #@log_function_name()
     def eventFilter(self, obj, event):
+        print(f"")
         if self._ui_enabled:
             if event.type() == QEvent.MouseButtonPress:
                 if event.button() == Qt.RightButton:
@@ -727,15 +735,15 @@ class ShotBoard(QMainWindow):
             elif event.type() == QEvent.KeyPress:
                 if event.key() == Qt.Key_Space:
                     self._play_button.click()  # Play / pause
-                    return True
+                    return True  # Event handled
 
                 modifiers = event.modifiers()
                 if modifiers & Qt.ShiftModifier:
                     frame_inc = 4  # 4 frames
                 elif modifiers & Qt.ControlModifier:
-                    frame_inc = round(self._fps)  # 1 second
+                    frame_inc = round(self._video_info.fps)  # 1 second
                 elif modifiers & Qt.AltModifier:
-                    frame_inc = round(4 * self._fps)  # 4 seconds
+                    frame_inc = round(4 * self._video_info.fps)  # 4 seconds
                 else:
                     frame_inc = 1
 
@@ -761,14 +769,14 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_video_clicked(self):
-        if not self._video_path or not self._ui_enabled:
+        if not self._video_info.video_path or not self._ui_enabled:
             return
         self.on_play_button_clicked()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_play_button_clicked(self):
-        if not self._video_path:
+        if not self._video_info.video_path:
             return
 
         player_state = self._mediaplayer.get_state()
@@ -814,7 +822,7 @@ class ShotBoard(QMainWindow):
         # Jump to the beginning of the next shot if it exists.
         frame_index = self._seek_spinbox.value()
         _, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)
-        if end_frame_index < self._frame_count:
+        if end_frame_index < self._video_info.frame_count:
             next_shot_index = self._db.get_shot_index(end_frame_index)
             next_shot_widget = self._shot_widgets[next_shot_index]
             self._mediaplayer.seek(next_shot_widget.get_start_frame_index())
@@ -987,8 +995,8 @@ class ShotBoard(QMainWindow):
     def update_window_title(self):
         title = f"{DEFAULT_TITLE} {APP_VERSION}"
 
-        if self._video_path:
-            title += f"   Video: {os.path.basename(self._video_path)}"
+        if self._video_info.video_path:
+            title += f"   Video: {os.path.basename(self._video_info.video_path)}"
         else:
             title += "   Video: (undefined)"
 
@@ -1006,21 +1014,21 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_status_bar(self):
-        ratio = self._frame_width / self._frame_height if self._frame_height > 0 else 0
-        duration_hms = str(datetime.timedelta(seconds=int(self._duration)))
-        duration_h = self._duration / 3600 if self._duration > 0 else 1  # Prevent division by zero
+        ratio = self._video_info.frame_width / self._video_info.frame_height if self._video_info.frame_height > 0 else 0
+        duration_hms = str(datetime.timedelta(seconds=int(self._video_info.duration)))
+        duration_h = self._video_info.duration / 3600 if self._video_info.duration > 0 else 1  # Prevent division by zero
         shots_per_2_hours = round(len(self._db) / duration_h) * 2
 
         self._info_label.setText(
             f"Duration: {duration_hms}   "
-            f"FPS: {self._fps:.3f}   "
-            f"Resolution: {self._frame_width}x{self._frame_height} ({ratio:.2f})   "
+            f"FPS: {self._video_info.fps:.3f}   "
+            f"Resolution: {self._video_info.frame_width}x{self._video_info.frame_height} ({ratio:.2f})   "
             f"Shots: {len(self._db)} (avg. {shots_per_2_hours} shots/2-hours)"
         )
 
     
     def update_ui_state(self):
-        enabled = (self._video_path != None and self._ui_enabled)
+        enabled = (self._video_info.video_path != None and self._ui_enabled)
         self._seek_slider.setEnabled(enabled)
         self._seek_spinbox.setEnabled(enabled)
         self._play_button.setEnabled(enabled)
@@ -1041,7 +1049,7 @@ class ShotBoard(QMainWindow):
         if self._seek_slider.value() != frame_index:
             self._seek_slider.setValue(frame_index)
 
-            elapsed_time_s = frame_index / self._fps
+            elapsed_time_s = frame_index / self._video_info.fps
             if SLIDER_TIMESTAMP_MILLISECONDS:
                 hours = int(elapsed_time_s // 3600)
                 minutes = int((elapsed_time_s % 3600) // 60)
@@ -1066,10 +1074,9 @@ class ShotBoard(QMainWindow):
         self.clear_shot_widgets()
         self._db.clear_shots()
         self._db_path = None
-        self._video_path = None
-        self._fps = 0
+        self._video_info.clear_info()
         ShotWidget.thumbnail_manager.clear()
-        ShotWidget.thumbnail_manager.set_video(None, None)
+        ShotWidget.thumbnail_manager.set_video_info(self._video_info)
         self.update_ui_state()
         self.update_window_title()
         self.statusBar().showMessage("Load a video.")
@@ -1086,7 +1093,7 @@ class ShotBoard(QMainWindow):
 
     def create_shot_widget(self, widget_index, start_frame_index):
         num_img_per_row = self._zoom_spinbox.value()
-        shot_widget = ShotWidget(self._video_path, self._fps, widget_index, *self._db.get_start_end_frame_indexes(start_frame_index), num_img_per_row)
+        shot_widget = ShotWidget(widget_index, self._video_info, *self._db.get_start_end_frame_indexes(start_frame_index), num_img_per_row)
         shot_widget.hovered.connect(self.on_shot_widget_hovered)
         shot_widget.clicked.connect(self.on_shot_widget_clicked)
         self._shot_widgets.insert(widget_index, shot_widget)
@@ -1107,7 +1114,7 @@ class ShotBoard(QMainWindow):
                 next_shot_widget = self._shot_widgets[widget_index]
                 prev_shot_widget.set_end_frame_index(next_shot_widget.get_start_frame_index(), False)
             else:
-                prev_shot_widget.set_end_frame_index(self._frame_count, False)
+                prev_shot_widget.set_end_frame_index(self._video_info.frame_count, False)
 
 
     @log_function_name()
@@ -1227,28 +1234,27 @@ class ShotBoard(QMainWindow):
         self.reset_all()        
         self.enable_ui(False)
 
-        self._video_path = url.toLocalFile()
-        self.update_window_title()
-
-        cap = cv2.VideoCapture(self._video_path)
-        self._fps = cap.get(cv2.CAP_PROP_FPS)
-        self._frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self._frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self._frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self._duration = self._frame_count / self._fps if self._fps > 0 else 0  # in seconds
+        video_path = url.toLocalFile()
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
 
-        self._mediaplayer.set_video(self._video_path, self._fps, self._frame_count)
+        self._video_info.set_info(video_path, fps, frame_width, frame_height, frame_count)
+        self._mediaplayer.set_video_info(self._video_info)
+        ShotWidget.thumbnail_manager.set_video_info(self._video_info)
+
         self.on_volume_slider_moved(self._volume_slider.value())
 
-        self._seek_slider.setRange(0, self._frame_count - 1)
-        self._seek_spinbox.setRange(0, self._frame_count - 1)
+        self._seek_slider.setRange(0, frame_count - 1)
+        self._seek_spinbox.setRange(0, frame_count - 1)
 
-        self._db.set_frame_count(self._frame_count)
+        self._db.set_frame_count(frame_count)
         self._db.add_shot(0)  # Add a single shot covering the whole video
 
-        ShotWidget.thumbnail_manager.set_video(self._video_path, self._fps)
-
+        self.update_window_title()
         self.update_grid_layout()
         self.select_shot_widgets(0, 0)
         self.update_ui_state()
@@ -1265,7 +1271,7 @@ class ShotBoard(QMainWindow):
         self._db.load_from_json(json_path)
         self._db_path = json_path
         #self.add_filename_to_recent(json_path)  # update 'Open Recent' menu.
-        if self._frame_count != self._db.get_frame_count():
+        if self._video_info.frame_count != self._db.get_frame_count():
             QMessageBox.warning(self, "Warning", "The shot list does not match the video.")
             self._db.clear_shots()
             self.deselect_all()
@@ -1336,8 +1342,8 @@ class ShotBoard(QMainWindow):
     
     @log_function_name()
     def detect_shots_ssim(self, start_frame_index, end_frame_index):
-        assert self._video_path
-        if not self._video_path:
+        assert self._video_info.video_path
+        if not self._video_info.video_path:
             return
 
         self.stop_video()
@@ -1346,27 +1352,33 @@ class ShotBoard(QMainWindow):
 
         # Define target width and compute target height while maintaining aspect ratio
         TARGET_WIDTH = self._downscale_spinbox.value()
-        TARGET_HEIGHT = round(self._frame_height * (TARGET_WIDTH / self._frame_width))
+        TARGET_HEIGHT = round(self._video_info.frame_height * (TARGET_WIDTH / self._video_info.frame_width))
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        START_POS = max(0, (start_frame_index - 0) / self._fps)  # frame position in seconds
+        START_POS = max(0, (start_frame_index - 0) / self._video_info.fps)  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
             "ffmpeg",
-            #"-loglevel", "debug",
+            "-loglevel", "quiet",
             "-ss", str(START_POS),  # Fast seek FIRST
-            "-i", self._video_path,  # Input file AFTER
+            "-i", self._video_info.video_path,  # Input file AFTER
             "-vframes", str(end_frame_index - start_frame_index),
             "-vf", f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}, format=gray",  # Scale and convert to grayscale
             "-f", "rawvideo",
             "-pix_fmt", "gray",
-            #"-accurate_seek",  # Ensures exact frame accuracy
             "-nostdin",
             "-"
         ]
-        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+        # Run FFmpeg without showing a console window
+        process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdout=subprocess.PIPE,  # Capture stdout
+            stderr=subprocess.DEVNULL,  # Discard stderr
+            **FFMPEG_NOWINDOW_KWARGS
+        )
 
         # Create a progress dialog
         progress_dialog = QProgressDialog("Detecting shots... (time remaining: --:--:--)", "Cancel", start_frame_index, end_frame_index, self)
@@ -1537,7 +1549,7 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def export_selection(self, ask_for_path):
-        if not self._video_path:
+        if not self._video_info.video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
             return
 
@@ -1552,7 +1564,7 @@ class ShotBoard(QMainWindow):
         shot_widget_min, shot_widget_max = self._shot_widgets[shot_index_min], self._shot_widgets[shot_index_max]
         start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
-        START_POS = max(0, (start_frame_index - 0) / self._fps)  # frame position in seconds
+        START_POS = max(0, (start_frame_index - 0) / self._video_info.fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1582,9 +1594,10 @@ class ShotBoard(QMainWindow):
         # Build the ffmpeg command
         ffmpeg_cmd = [
             "ffmpeg",
+            "-loglevel", "quiet",
             "-y",  # Overwrite without asking
             "-ss", str(START_POS),  # Apply seeking **after** input for accuracy
-            "-i", self._video_path,  # Input file first
+            "-i", self._video_info.video_path,  # Input file first
             # "-c", "copy",  # Copy streams instead of re-encoding
             "-c:v", "libx264",  # Re-encode video to ensure precision
             # "-preset", "ultrafast",  # Minimize encoding overhead
@@ -1597,7 +1610,7 @@ class ShotBoard(QMainWindow):
 
         # Run the FFmpeg command
         try:
-            subprocess.run(ffmpeg_cmd, check=True)
+            subprocess.run(ffmpeg_cmd, check=True, **FFMPEG_NOWINDOW_KWARGS)
             message = f"Export successful: {save_path}"
             self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
         except subprocess.CalledProcessError as e:
@@ -1613,14 +1626,14 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def export_single_frame(self, frame_index, ask_for_path=True):
-        if not self._video_path:
+        if not self._video_info.video_path:
             QMessageBox.warning(self, "Export Error", "Please load a video first.")
             return
 
         self.pause_video()
 
         # Calculate timestamp in seconds
-        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._fps)  # frame position in seconds
+        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1653,9 +1666,10 @@ class ShotBoard(QMainWindow):
         # FFmpeg command to extract a single frame
         ffmpeg_cmd = [
             "ffmpeg",
+            "-loglevel", "quiet",
             "-y",  # Overwrite without asking
             "-ss", str(START_POS),  # Seek to the frame
-            "-i", self._video_path,  # Input file
+            "-i", self._video_info.video_path,  # Input file
             "-frames:v", "1",  # Export only one frame
             "-q:v", "2",  # High quality (lower = better quality, range: 2-31)
             "-update", "1",  # Ensure single image update (for PNG/JPEG output)
@@ -1664,7 +1678,7 @@ class ShotBoard(QMainWindow):
 
         # Run FFmpeg command
         try:
-            subprocess.run(ffmpeg_cmd, check=True)
+            subprocess.run(ffmpeg_cmd, check=True, **FFMPEG_NOWINDOW_KWARGS)
             message = f"Frame exported successfully: {save_path}"
             self._status_bar.showMessage(message, 5000)  # Show message for 5 seconds
         except subprocess.CalledProcessError as e:
@@ -1891,11 +1905,11 @@ class ShotBoard(QMainWindow):
 
 
     def frame_index_to_ms(self, frame_index):
-        return int(frame_index * 1000 / self._fps)  # in milliseconds
+        return int(frame_index * 1000 / self._video_info.fps)  # in milliseconds
 
 
     def ms_to_frame_index(self, time_ms):
-        return int(time_ms * 0.001 * self._fps)
+        return int(time_ms * 0.001 * self._video_info.fps)
 
 
     def convert_detection_slider_value_to_ssim_drop_threshold(self, value):
@@ -1904,7 +1918,7 @@ class ShotBoard(QMainWindow):
 
     def make_export_path(self, START_POS, extension):
         # Extract filename and remove extension
-        filename, _ = os.path.splitext(os.path.basename(self._video_path))  # Split the extension
+        filename, _ = os.path.splitext(os.path.basename(self._video_info.video_path))  # Split the extension
         title = filename.replace(" ", "")  # Remove spaces
         timestamp = f"{int(START_POS // 3600):02}{int((START_POS % 3600) // 60):02}{int(START_POS % 60):02}"
 
@@ -1917,7 +1931,7 @@ class ShotBoard(QMainWindow):
             filename = f"{title}_{timestamp}{extension}"
 
         # Create "Export" subdirectory
-        export_dir = os.path.join(os.path.dirname(self._video_path), "Export")
+        export_dir = os.path.join(os.path.dirname(self._video_info.video_path), "Export")
         os.makedirs(export_dir, exist_ok=True)  # Ensure it exists
 
         # Full export path

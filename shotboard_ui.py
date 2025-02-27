@@ -1,8 +1,6 @@
 from shotboard_vid import *
 
-import ffmpeg
 import subprocess
-import os
 import queue
 import bisect
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThreadPool, QRunnable, QEvent, QTimer, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker, QRect
@@ -15,20 +13,17 @@ STORED_IMAGE_SIZE = (1024, 576) # h = w * 0.5625
 
 SHOT_WIDGET_SELECT_COLOR = "#f9a825"  # orange
 SHOT_WIDGET_MARGIN = 4  # also margin between the scrollarea frame and the widgets
+GRID_LAYOUT_SPACING = 6
 
-# total width target = 1866
-# target ratio = 16/9
-# widget width = int(1872/num_images - 16)
-# widget height = round(w * 0.5625)
-SHOT_IMAGE_SIZES = {
-    4: (452, 254),
-    5: (358, 201),
-    6: (296, 167),
-    7: (251, 141),
-    8: (218, 123),
-    9: (192, 108),
-    10: (171, 96)
-}
+SHOT_IMAGE_SIZES = {}
+SHOT_IMAGE_SIZES_MIN = 4
+SHOT_IMAGE_SIZES_MAX = 10
+assert SHOT_IMAGE_SIZES_MAX >= SHOT_IMAGE_SIZES_MIN
+for i in range(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX + 1):
+    TOTAL_TARGET_WIDTH = 1866
+    img_width = int((TOTAL_TARGET_WIDTH + GRID_LAYOUT_SPACING) / i - (2 * SHOT_WIDGET_MARGIN + 2) - GRID_LAYOUT_SPACING)
+    img_height = round(img_width * 0.5625)  # ratio = 16/9 (inv = 0.5625)
+    SHOT_IMAGE_SIZES[i] = (img_width, img_height)
 DEFAULT_SHOT_IMAGE_SIZE = 10
 
 SHOT_WIDGET_PROGRESSBAR_COLOR = "#3a9ad9" #"#0284eb"  # blue
@@ -63,38 +58,45 @@ class ThumbnailLoader(QRunnable):
         thumbnail_failed  = pyqtSignal(int)
 
 
-    def __init__(self, video_path, fps, frame_index):
+    def __init__(self, video_info, frame_index):
         super().__init__()
         self.setAutoDelete(True)
-        self.signals = ThumbnailLoader.Signals()
+        self._signals = ThumbnailLoader.Signals()
 
-        self.video_path = video_path
-        self.fps = fps
-        self.frame_index = frame_index
+        self._video_info = video_info
+        self._frame_index = frame_index
     
 
     def run(self):
         """ Simulate loading an image by creating a black QPixmap """
-        START_POS = max(0, (self.frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self.fps)  # frame position in seconds
+        START_POS = max(0, (self._frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
 
-        # Construct FFmpeg command using ffmpeg-python
         with QMutexLocker(ThumbnailLoader.ffmpeg_mutex):
-            ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)
-            # if ShotWidget.detect_edges:
-            #     ffmpeg_cmd = (
-            #         ffmpeg_cmd
-            #         .filter('format', 'gray')  # Convert to grayscale
-            #         .filter('sobel', scale=ShotWidget.edge_factor)  # Edge detection
-            #         .filter('negate')  # Invert colors
-            #     )
-            ffmpeg_cmd = ffmpeg_cmd.output('pipe:', vframes=1, format='image2', vcodec='mjpeg').compile()
+            # Run FFmpeg without showing a console window
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(START_POS),  # Fast seek FIRST
+                "-i", self._video_info.video_path,  # Input file AFTER
+                "-vframes", "1",  # Number of frames to process
+                "-f", "image2",  # Output format
+                "-vcodec", "mjpeg",  # Video codec
+                "-nostdin",  # Disable interaction on standard input
+                "-"  # Output to pipe
+            ]
 
-            process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,  # Capture stdout
+                stderr=subprocess.DEVNULL,  # Discard stderr
+                **FFMPEG_NOWINDOW_KWARGS
+            )
+
             out, err = process.communicate()
             if process.returncode != 0:
                 print("Error: Cannot extract frame with FFmpeg.")
                 print(err.decode())
-                self.signals.thumbnail_failed.emit(self.frame_index)
+                self._signals.thumbnail_failed.emit(self._frame_index)
                 return
 
             pixmap = QPixmap(STORED_IMAGE_SIZE[0], STORED_IMAGE_SIZE[1])
@@ -109,7 +111,7 @@ class ThumbnailLoader(QRunnable):
                 pixmap.fill(Qt.darkCyan)  # Default black in case of error
                 print("Failed to load image data.")
 
-            self.signals.thumbnail_loaded.emit(self.frame_index, pixmap)
+            self._signals.thumbnail_loaded.emit(self._frame_index, pixmap)
 
 
 ##
@@ -134,13 +136,11 @@ class ThumbnailManager(QObject):
         self.running_tasks = set()  # Tracks currently loading frame indexes
         self.is_processing_queue = False
 
-        self.video_path = None
-        self.fps = None
+        self._video_info = None
 
 
-    def set_video(self, video_path, fps):
-        self.video_path = video_path
-        self.fps = fps
+    def set_video_info(self, video_info):
+        self._video_info = video_info
 
 
     def clear(self):
@@ -251,9 +251,9 @@ class ThumbnailManager(QObject):
 
             with QWriteLocker(self.lock):
                 self.running_tasks.add(frame_index)
-            loader = ThumbnailLoader(self.video_path, self.fps, frame_index)
-            loader.signals.thumbnail_loaded.connect(self.on_thumbnail_loaded)
-            loader.signals.thumbnail_failed.connect(self.on_loading_failed)
+            loader = ThumbnailLoader(self._video_info, frame_index)
+            loader._signals.thumbnail_loaded.connect(self.on_thumbnail_loaded)
+            loader._signals.thumbnail_failed.connect(self.on_loading_failed)
             # print(f"activeThreadCount={self.thread_pool.activeThreadCount()}/{self.thread_pool.maxThreadCount() - 1}")
             self.thread_pool.start(loader)
             # assert len(self.running_tasks) == self.thread_pool.maxThreadCount() - self.thread_pool.activeThreadCount()
@@ -350,40 +350,39 @@ class ShotWidget(QFrame):
             raise KeyError(f"Error - Unkown number of images per row {num_img_per_row}")
 
 
-    def __init__(self, video_path, fps, shot_number, start_frame_index, end_frame_index, num_img_per_row):
+    def __init__(self, shot_number, video_info, start_frame_index, end_frame_index, num_img_per_row):
         super().__init__()
-        self.videoplayer = None
-        self.video_path = video_path
-        self.fps = fps
-        self.start_frame_index = start_frame_index  # included
-        self.end_frame_index = end_frame_index  # excluded (i.e. next frame's start_frame_index)
-        self.shot_number = shot_number
-        self.is_selected = False
+        self._videoplayer = None
+        self._shot_number = shot_number
+        self._video_info = video_info
+        self._start_frame_index = start_frame_index  # included
+        self._end_frame_index = end_frame_index  # excluded (i.e. next frame's start_frame_index)
+        self._is_selected = False
 
         layout = QVBoxLayout()
         layout.setContentsMargins(SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN)
         layout.setSpacing(SHOT_WIDGET_MARGIN)
 
         # Create a QLabel to display the thumbnail
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background-color: black;")
-        self.image_label.installEventFilter(self)
-        self.image_label.setMouseTracking(True)
-        layout.addWidget(self.image_label)
+        self._image_label = QLabel()
+        self._image_label.setAlignment(Qt.AlignCenter)
+        self._image_label.setStyleSheet("background-color: black;")
+        self._image_label.installEventFilter(self)
+        self._image_label.setMouseTracking(True)
+        layout.addWidget(self._image_label)
 
         self.setMouseTracking(True)  # Enable tracking for the whole widget
 
         # Create a timer to hide the mouse cursor when inactive
-        self.cursor_timer = QTimer(self)
-        self.cursor_timer.setInterval(SHOT_WIDGET_HIDE_CURSOR_TIMEOUT)
-        self.cursor_timer.timeout.connect(self.on_cursor_timer_timeout)
+        self._cursor_timer = QTimer(self)
+        self._cursor_timer.setInterval(SHOT_WIDGET_HIDE_CURSOR_TIMEOUT)
+        self._cursor_timer.timeout.connect(self.on_cursor_timer_timeout)
 
         # Create a progress bar to display the frame index
-        self.frame_progress_bar = QProgressBar()
-        self.frame_progress_bar.setMaximumHeight(SHOT_WIDGET_PROGRESSBAR_HEIGHT)
-        self.frame_progress_bar.setAlignment(Qt.AlignCenter)
-        self.frame_progress_bar.setStyleSheet(f"""
+        self._frame_progress_bar = QProgressBar()
+        self._frame_progress_bar.setMaximumHeight(SHOT_WIDGET_PROGRESSBAR_HEIGHT)
+        self._frame_progress_bar.setAlignment(Qt.AlignCenter)
+        self._frame_progress_bar.setStyleSheet(f"""
             QProgressBar {{
                 background-color: white;
                 text-align: center;
@@ -394,25 +393,25 @@ class ShotWidget(QFrame):
                 background-color: {SHOT_WIDGET_PROGRESSBAR_COLOR};  /* Progress bar color */
             }}
         """)
-        self.frame_progress_bar.setMinimum(start_frame_index)
-        self.frame_progress_bar.setMaximum(end_frame_index - 1)
+        self._frame_progress_bar.setMinimum(start_frame_index)
+        self._frame_progress_bar.setMaximum(end_frame_index - 1)
         self.update_progress_bar(start_frame_index)
-        layout.addWidget(self.frame_progress_bar)
+        layout.addWidget(self._frame_progress_bar)
 
         self.setLayout(layout)
 
         self.setFrameStyle(QFrame.Box)
         self.resize(num_img_per_row)
-        self.thumbnail_loaded = False
+        self._thumbnail_loaded = False
     
 
     def set_shot_number(self, number):
-        self.shot_number = number
+        self._shot_number = number
 
 
     def resize(self, num_img_per_row):
         image_size = ShotWidget.evaluate_image_size(num_img_per_row)
-        self.image_label.setMaximumSize(image_size[0], image_size[1])
+        self._image_label.setMaximumSize(image_size[0], image_size[1])
 
         widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
         self.setFixedSize(widget_size[0], widget_size[1])
@@ -421,7 +420,7 @@ class ShotWidget(QFrame):
 
 
     def is_thumbnail_loaded(self):
-        return self.thumbnail_loaded
+        return self._thumbnail_loaded
 
 
     def get_margins(self):
@@ -429,25 +428,27 @@ class ShotWidget(QFrame):
 
 
     def get_start_frame_index(self):
-        return self.start_frame_index
+        return self._start_frame_index
     
 
     def get_end_frame_index(self):
-        return self.end_frame_index
+        return self._end_frame_index
 
 
     def set_end_frame_index(self, end_frame_index, reset_thumbnail):
-        assert end_frame_index > self.start_frame_index
-        self.end_frame_index = end_frame_index
-        self.frame_progress_bar.setMaximum(end_frame_index - 1)
-        self.update_progress_bar(self.start_frame_index)
+        if self._start_frame_index >= end_frame_index:
+            pass
+        assert end_frame_index > self._start_frame_index
+        self._end_frame_index = end_frame_index
+        self._frame_progress_bar.setMaximum(end_frame_index - 1)
+        self.update_progress_bar(self._start_frame_index)
         if reset_thumbnail:
             self.initialise_thumbnail(True)
 
 
     def set_selected(self, selected):
-        self.is_selected = selected
-        if self.is_selected:
+        self._is_selected = selected
+        if self._is_selected:
             self.setStyleSheet(f"background-color: {SHOT_WIDGET_SELECT_COLOR};")
         else:
             self.setStyleSheet("background-color: none;")
@@ -460,7 +461,7 @@ class ShotWidget(QFrame):
 
 
     def eventFilter(self, source, event):
-        if source == self.image_label:
+        if source == self._image_label:
             if event.type() == QEvent.Enter:
                 self.on_image_label_enter()
             elif event.type() == QEvent.Leave:
@@ -471,7 +472,7 @@ class ShotWidget(QFrame):
     def mouseMoveEvent(self, event):
         """Show the cursor and restart the timer when the mouse moves."""
         self.setCursor(Qt.ArrowCursor)  # Ensure cursor is visible
-        self.cursor_timer.start()  # Restart the countdown
+        self._cursor_timer.start()  # Restart the countdown
         super().mouseMoveEvent(event)
 
 
@@ -482,31 +483,31 @@ class ShotWidget(QFrame):
 
 
     def on_image_label_enter(self):
-        self.cursor_timer.start()  # Start tracking inactivity
-        self.videoplayer = VideoPlayer(self.video_path, self.fps, self.start_frame_index, self.end_frame_index, ShotWidget.volume, ShotWidget.speed, ShotWidget.detect_edges, ShotWidget.edge_factor)
-        if self.videoplayer:
+        self._cursor_timer.start()  # Start tracking inactivity
+        self._videoplayer = VideoPlayer(self._video_info, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.speed, ShotWidget.detect_edges, ShotWidget.edge_factor)
+        if self._videoplayer:
             self.safe_disconnect_from_thumbnail_manager()  # In case it was waiting for a thumbnail
-            self.videoplayer.frame_signal.connect(self.on_frame_loaded)
-            self.videoplayer.start()  # Start the video rendering thread
+            self._videoplayer.frame_signal.connect(self.on_frame_loaded)
+            self._videoplayer.start()  # Start the video rendering thread
         self.hovered.emit(True)
 
 
     def on_image_label_leave(self):
-        self.cursor_timer.stop()  # Stop hiding cursor
+        self._cursor_timer.stop()  # Stop hiding cursor
         self.setCursor(Qt.ArrowCursor)  # Ensure the cursor is visible
-        if self.videoplayer:
-            self.videoplayer.stop()  # Force disconnection
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()  # Force disconnection
+            self._videoplayer = None
         self.hovered.emit(False)
 
 
     def initialise_thumbnail(self, priority=False):
-        if ShotWidget.thumbnail_manager.has_thumbnail(self.start_frame_index):
-            pixmap = ShotWidget.thumbnail_manager.get_thumbnail(self.start_frame_index)
-            self.update_frame(self.start_frame_index, pixmap)
-            self.thumbnail_loaded = True
+        if ShotWidget.thumbnail_manager.has_thumbnail(self._start_frame_index):
+            pixmap = ShotWidget.thumbnail_manager.get_thumbnail(self._start_frame_index)
+            self.update_frame(self._start_frame_index, pixmap)
+            self._thumbnail_loaded = True
         else:
-            self.thumbnail_loaded = False
+            self._thumbnail_loaded = False
             self.request_thumbnail(priority)
 
 
@@ -514,28 +515,28 @@ class ShotWidget(QFrame):
         """Request a thumbnail from the shared ThumbnailManager."""
         self.safe_disconnect_from_thumbnail_manager()
         ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_thumbnail_loaded, Qt.QueuedConnection)
-        ShotWidget.thumbnail_manager.request_thumbnail(self.start_frame_index, priority)
+        ShotWidget.thumbnail_manager.request_thumbnail(self._start_frame_index, priority)
 
 
     # Callback function called by ThumbnailManager when a thumbnail is loaded
     def on_thumbnail_loaded(self, frame_index, pixmap):
         """Set the thumbnail loaded by ThumbnailManager."""
-        if frame_index != self.start_frame_index:
+        if frame_index != self._start_frame_index:
             return
 
         self.safe_disconnect_from_thumbnail_manager()
-        self.update_frame(self.start_frame_index, pixmap)
-        self.image_label.update()
-        self.thumbnail_loaded = True
+        self.update_frame(self._start_frame_index, pixmap)
+        self._image_label.update()
+        self._thumbnail_loaded = True
 
 
     # Callback function called by VideoPlayer when a frame is ready to be displayed
     def on_frame_loaded(self):
         """Display the frame loaded by VideoPlayer."""
-        assert self.videoplayer
-        if not self.videoplayer._frame_queue.empty():
+        assert self._videoplayer
+        if not self._videoplayer._frame_queue.empty():
             try:
-                frame_index, image = self.videoplayer._frame_queue.get()  # Thread-safe
+                frame_index, image = self._videoplayer._frame_queue.get()  # Thread-safe
                 self.update_frame(frame_index, QPixmap.fromImage(image))
             except queue.Empty:
                 print("Warning: Frame queue is empty. Skipping frame.")
@@ -553,15 +554,15 @@ class ShotWidget(QFrame):
 
 
     def update_frame(self, frame_index, pixmap):
-        scaled_pixmap = pixmap.scaled(self.image_label.maximumWidth(), self.image_label.maximumHeight(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
-        self.image_label.setPixmap(scaled_pixmap)
+        scaled_pixmap = pixmap.scaled(self._image_label.maximumWidth(), self._image_label.maximumHeight(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
+        self._image_label.setPixmap(scaled_pixmap)
         self.update_progress_bar(frame_index)
-        self.thumbnail_loaded = True
+        self._thumbnail_loaded = True
 
 
     def update_progress_bar(self, frame_index):
-        self.frame_progress_bar.setValue(frame_index)
-        self.frame_progress_bar.setFormat(f"🎥{self.shot_number}   🎞%v")
+        self._frame_progress_bar.setValue(frame_index)
+        self._frame_progress_bar.setFormat(f"🎥{self._shot_number}   🎞%v")
 
 
     def closeEvent(self, event):
@@ -572,8 +573,8 @@ class ShotWidget(QFrame):
 
     def __del__(self):
         """ Ensure the VideoPlayer is stopped when the object is deleted """
-        if self.videoplayer:
-            self.videoplayer.stop()
+        if self._videoplayer:
+            self._videoplayer.stop()
 
 
 ##

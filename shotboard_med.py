@@ -1,7 +1,6 @@
 from shotboard_vid import *
 from shotboard_ui import *
 
-import ffmpeg
 import subprocess
 import os
 import queue
@@ -44,13 +43,11 @@ class SBMediaPlayer(QLabel):
 
     def __init__(self):
         super().__init__()
-        self.state = self.StoppedState
-        self.videoplayer = None
+        self._state = self.StoppedState
+        self._videoplayer = None
 
-        self.video_path = None
-        self.fps = 0
-        self.frame_index = 0
-        self.end_frame_index = 0  # excluded
+        self._video_info = None
+        self._frame_index = 0
 
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("background-color: black;")  # black, darkCyan
@@ -66,46 +63,44 @@ class SBMediaPlayer(QLabel):
 
     def set_volume(self, volume):
         SBMediaPlayer.volume = volume
-        if self.videoplayer:
-            self.videoplayer.set_volume(volume)
+        if self._videoplayer:
+            self._videoplayer.set_volume(volume)
 
 
     def is_ready(self):
-        if not self.video_path:
+        if not self._video_info or not self._video_info.video_path:
             return False
         
-        if not os.path.isfile(self.video_path):
-            print(f"Error: File {self.video_path} does not exist.")
+        if not os.path.isfile(self._video_info.video_path):
+            print(f"Error: File {self._video_info.video_path} does not exist.")
             return False
         
         return True
 
 
-    def set_video(self, video_path, fps, frame_count):
-        self.video_path = video_path
-        self.fps = fps
-        self.frame_index = 0
-        self.end_frame_index = frame_count
+    def set_video_info(self, video_info):
+        self._video_info = video_info
+        self._frame_index = 0
         self.seek(0)
 
 
     def set_state(self, state):
         if isinstance(state, self.State):
-            if self.state != state:
-                self.state = state
+            if self._state != state:
+                self._state = state
                 self.stateChanged.emit(state)
-                # print(f"State changed to: {self.state.name} ({self.state.value})")
+                # print(f"State changed to: {self._state.name} ({self._state.value})")
         else:
             raise ValueError("Invalid state")
 
 
     def get_state(self):
-        return self.state
+        return self._state
 
 
     def resizeEvent(self, event):
         """Handle resizing by recalculating the pixmap."""
-        self.set_still_frame(self.frame_index)
+        self.set_still_frame(self._frame_index)
         super().resizeEvent(event)
 
 
@@ -116,19 +111,19 @@ class SBMediaPlayer(QLabel):
 
 
     def get_frame_index(self):
-        return self.frame_index
+        return self._frame_index
 
 
     def is_playing(self):
-        return self.state == self.PlayingState
+        return self._state == self.PlayingState
 
 
     def is_paused(self):
-        return self.state == self.PausedState
+        return self._state == self.PausedState
 
 
     def is_stopped(self):
-        return self.state == self.StoppedState
+        return self._state == self.StoppedState
 
 
     def seek(self, frame_index):
@@ -146,14 +141,14 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer:
-            self.videoplayer.stop()
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()
+            self._videoplayer = None
 
-        self.videoplayer = VideoPlayer(self.video_path, self.fps, start_frame_index, self.end_frame_index, SBMediaPlayer.volume, SBMediaPlayer.speed, SBMediaPlayer.detect_edges, SBMediaPlayer.edge_factor)
-        if self.videoplayer:
-            self.videoplayer.frame_signal.connect(self.on_frame_loaded)
-            self.videoplayer.start()  # Start the video rendering thread
+        self._videoplayer = VideoPlayer(self._video_info, start_frame_index, self._video_info.frame_count, SBMediaPlayer.volume, SBMediaPlayer.speed, SBMediaPlayer.detect_edges, SBMediaPlayer.edge_factor)
+        if self._videoplayer:
+            self._videoplayer.frame_signal.connect(self.on_frame_loaded)
+            self._videoplayer.start()  # Start the video rendering thread
 
         self.set_state(self.PlayingState)
 
@@ -162,8 +157,8 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer and self.is_playing():
-            self.videoplayer.pause()
+        if self._videoplayer and self.is_playing():
+            self._videoplayer.pause()
         
         self.set_state(self.PausedState)
 
@@ -172,14 +167,14 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer:
+        if self._videoplayer:
             if self.is_paused():
-                if self.frame_index + 1 < self.end_frame_index:
-                    self.videoplayer.resume()
+                if self._frame_index + 1 < self._video_info.frame_count:
+                    self._videoplayer.resume()
                 else:
-                    self.videoplayer.play()
+                    self._videoplayer.play()
         else:
-            self.play(self.frame_index)
+            self.play(self._frame_index)
         
         self.set_state(self.PlayingState)
 
@@ -188,14 +183,14 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer:
-            self.videoplayer.stop()
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()
+            self._videoplayer = None
 
         self.set_state(self.StoppedState)
         if reset:
             self.reset_frame()
-            self.frame_index = 0
+            self._frame_index = 0
             self.frameChanged.emit(0)
 
 
@@ -203,24 +198,46 @@ class SBMediaPlayer(QLabel):
         if not self.is_ready():
             return
 
-        if self.videoplayer:
-            self.videoplayer.stop()
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()
+            self._videoplayer = None
 
-        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self.fps)  # frame position in seconds
+        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
 
-        # Use FFmpeg to extract the frame
-        ffmpeg_cmd = ffmpeg.input(self.video_path, ss=START_POS)
+        # Run FFmpeg without showing a console window
         if SBMediaPlayer.detect_edges:
-            ffmpeg_cmd = (
-                ffmpeg_cmd
-                .filter('format', 'gray')  # Convert to grayscale
-                .filter('sobel', scale=SBMediaPlayer.edge_factor)  # Edge detection
-                .filter('negate')  # Invert colors
-            )
-        ffmpeg_cmd = ffmpeg_cmd.output('pipe:', vframes=1, format='image2', vcodec='mjpeg').compile()
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(START_POS),  # Fast seek FIRST
+                "-i", self._video_info.video_path,  # Input file AFTER
+                "-vframes", "1",  # Number of frames to process
+                "-vf", f"format=gray, sobel=scale={SBMediaPlayer.edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                "-f", "image2",  # Output format
+                "-vcodec", "mjpeg",  # Video codec
+                "-nostdin",  # Disable interaction on standard input
+                "-"  # Output to pipe
+            ]
+        else:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(START_POS),  # Fast seek FIRST
+                "-i", self._video_info.video_path,  # Input file AFTER
+                "-vframes", "1",  # Number of frames to process
+                "-f", "image2",  # Output format
+                "-vcodec", "mjpeg",  # Video codec
+                "-nostdin",  # Disable interaction on standard input
+                "-"  # Output to pipe
+            ]
 
-        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdout=subprocess.PIPE,  # Capture stdout
+            stderr=subprocess.DEVNULL,  # Discard stderr
+            **FFMPEG_NOWINDOW_KWARGS
+        )
+
         out, err = process.communicate()
         if process.returncode != 0:
             print("Error: Cannot extract frame with FFmpeg.")
@@ -235,18 +252,18 @@ class SBMediaPlayer(QLabel):
 
         # Update the image label
         self.update_frame_from_image(frame_index, image)
-        self.frame_index = frame_index
+        self._frame_index = frame_index
         self.frameChanged.emit(frame_index)
         self.set_state(self.PausedState)
 
 
     def on_frame_loaded(self):
-        assert self.videoplayer
-        if not self.videoplayer._frame_queue.empty():
+        assert self._videoplayer
+        if not self._videoplayer._frame_queue.empty():
             try:
-                frame_index, image = self.videoplayer._frame_queue.get()  # Thread-safe
+                frame_index, image = self._videoplayer._frame_queue.get()  # Thread-safe
                 self.update_frame_from_image(frame_index, image)
-                if frame_index + 1 >= self.end_frame_index:
+                if frame_index + 1 >= self._video_info.frame_count:
                     self.stop(False)
             except queue.Empty:
                 print("Warning: Frame queue is empty. Skipping frame.")
@@ -264,22 +281,22 @@ class SBMediaPlayer(QLabel):
         scaled_pixmap = pixmap.scaled(self.width(), self.height(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
         self.setPixmap(scaled_pixmap)
 
-        self.frame_index = frame_index
+        self._frame_index = frame_index
         self.frameChanged.emit(frame_index)
 
 
     def closeEvent(self, event):
-        if self.videoplayer:
-            self.videoplayer.stop()
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()
+            self._videoplayer = None
         event.accept()
 
 
     def __del__(self):
         """ Ensure the VideoPlayer is stopped when the object is deleted """
-        if self.videoplayer:
-            self.videoplayer.stop()
-            self.videoplayer = None
+        if self._videoplayer:
+            self._videoplayer.stop()
+            self._videoplayer = None
 
 
 if __name__ == "__main__":

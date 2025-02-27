@@ -1,14 +1,51 @@
-import ffmpeg
+import subprocess
 import numpy as np
 import pyaudio
 from queue import Queue
 import os
+import sys
 from math import *
 from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QMutexLocker, QWaitCondition
 from PyQt5.QtGui import QImage
 
 
 FFMPEG_FRAME_SEEK_OFFSET = 0.1  # Slight offset to prevent FFmpeg from rounding to nearest (previous) frame
+
+# Platform-specific settings
+FFMPEG_NOWINDOW_KWARGS = {}
+if sys.platform == "win32":
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    FFMPEG_NOWINDOW_KWARGS["startupinfo"] = startupinfo
+
+
+#
+# VIDEO INFO
+#
+
+
+class VideoInfo():
+    def __init__(self, video_path=None, fps=0, frame_width=0, frame_height=0, frame_count=0):
+        self.set_info(video_path, fps, frame_width, frame_height, frame_count)
+
+
+    def set_info(self, video_path, fps, frame_width, frame_height, frame_count):
+        self.video_path = video_path
+        self.fps = fps
+        self.frame_width = frame_width
+        self.frame_height = frame_height
+        self.frame_count = frame_count
+        self.duration = self.frame_count / self.fps if self.fps > 0 else 0  # in seconds
+
+
+    def clear_info(self):
+        self.video_path = None
+        self.fps = 0
+        self.frame_width = 0
+        self.frame_height = 0
+        self.frame_count = 0
+        self.duration = 0
 
 
 #
@@ -21,20 +58,20 @@ AUDIO_BUFFER_SIZE = 1024  # E.g. (44100 * 2 * 2) = 1 second of audio (44.1kHz, 1
 
 class AudioPlayer(QThread):
     """Plays audio in a separate thread using PyAudio."""
-    _audio = None
-    _audio_stream = None
+    audio = None
+    audio_stream = None
 
-    def __init__(self, video_path, start_pos, volume, speed, parent=None):
+    def __init__(self, video_info, start_pos, volume, speed, parent=None):
         super().__init__(parent)
 
-        if AudioPlayer._audio is None:
-            AudioPlayer._audio = pyaudio.PyAudio()
-        if AudioPlayer._audio_stream is None:
-            AudioPlayer._audio_stream = AudioPlayer._audio.open(
+        if AudioPlayer.audio is None:
+            AudioPlayer.audio = pyaudio.PyAudio()
+        if AudioPlayer.audio_stream is None:
+            AudioPlayer.audio_stream = AudioPlayer.audio.open(
                 format=pyaudio.paInt16, channels=2, rate=44100, output=True, frames_per_buffer=AUDIO_BUFFER_SIZE
             )
 
-        self._video_path = video_path
+        self._video_info = video_info
         self._start_pos = start_pos
         self.set_volume(volume)
         self._speed = speed
@@ -54,11 +91,32 @@ class AudioPlayer(QThread):
             if not self._running:
                 return
 
-            self._process = (
-                ffmpeg
-                .input(self._video_path, ss=self._start_pos)
-                .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
-                .run_async(pipe_stdout=True, pipe_stderr=False)
+            # self._process = (
+            #     ffmpeg
+            #     .input(self._video_info.video_path, ss=self._start_pos)
+            #     .output('pipe:', format='s16le', acodec='pcm_s16le', ac=2, ar=44100)
+            #     .run_async(pipe_stdout=True, pipe_stderr=False)
+            #             )
+
+            # FFmpeg command as a plain list of arguments
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(self._start_pos),  # Fast seek to the start position
+                "-i", self._video_info.video_path,  # Input file
+                "-f", "s16le",  # Output format (16-bit signed little-endian PCM)
+                "-acodec", "pcm_s16le",  # Audio codec
+                "-ac", "2",  # Number of audio channels (stereo)
+                "-ar", "44100",  # Audio sample rate (44.1 kHz)
+                "-"  # Output to pipe
+            ]
+
+            # Run FFmpeg without showing a console window
+            self._process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,  # Capture stdout
+                stderr=subprocess.DEVNULL,  # Discard stderr
+                **FFMPEG_NOWINDOW_KWARGS
             )
 
         self._master_clock_timer.start()
@@ -87,7 +145,7 @@ class AudioPlayer(QThread):
                 audio_bytes = ((np.frombuffer(audio_bytes, dtype=np.int16) * self._volume).astype(np.int16)).tobytes()
                 
                 # Write the adjusted audio data to the stream
-                self._audio_stream.write(audio_bytes)
+                self.audio_stream.write(audio_bytes)
             except (OSError) as e:
                 print(f"Error playing audio data: {e}")
                 break
@@ -98,10 +156,10 @@ class AudioPlayer(QThread):
     def cleanup(self):
         self._running = False
         with QMutexLocker(self._process_mutex):  # 🔒
-            # if AudioPlayer._audio_stream:
-            #     AudioPlayer._audio_stream.stop_stream()
-            #     AudioPlayer._audio_stream.close()
-            #     AudioPlayer._audio.terminate()
+            # if AudioPlayer.audio_stream:
+            #     AudioPlayer.audio_stream.stop_stream()
+            #     AudioPlayer.audio_stream.close()
+            #     AudioPlayer.audio.terminate()
             if hasattr(self, '_process'):
                 self._process.stdout.close()
                 self._process.terminate()  # kill
@@ -157,10 +215,10 @@ class AudioPlayer(QThread):
 class VideoPlayer(QThread):
     frame_signal = pyqtSignal()  # Signal to send frames to the UI
 
-    def __init__(self, video_path, fps, start_frame_index, end_frame_index, volume, speed, detect_edges, edge_factor, parent=None):
+    def __init__(self, video_info, start_frame_index, end_frame_index, volume, speed, detect_edges, edge_factor, parent=None):
         super().__init__(parent)
-        self._video_path = video_path
-        self._fps = fps
+        self._video_info = video_info
+        self._frame_size = (video_info.frame_height, video_info.frame_width, 3)
         self._start_frame_index = start_frame_index
         self._end_frame_index = end_frame_index
         self._volume = max(0.0, min(1.0, volume))  # Ensure valid range
@@ -177,54 +235,59 @@ class VideoPlayer(QThread):
 
         self._frame_queue = Queue(maxsize=5)  # Thread-safe queue
 
-        frame_width, frame_height = self.get_frame_size()
-        self._frame_size = (frame_height, frame_width, 3)
-
 
     def run(self):
-        if not os.path.isfile(self._video_path):
-            print(f"Error: File {self._video_path} does not exist.")
+        if not os.path.isfile(self._video_info.video_path):
+            print(f"Error: File {self._video_info.video_path} does not exist.")
             return
 
-        assert self._fps > 0
-        START_POS = self._start_frame_index / self._fps
+        assert self._video_info.fps > 0
+        START_POS = self._start_frame_index / self._video_info.fps
         FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
-        MAX_TIME_DIFF = 1 / self._fps  # 1 frame interval in seconds
 
         # Start video process (only video)
         with QMutexLocker(self._process_mutex):  # 🔒
             if not self._running:
                 self.safe_disconnect()
                 return
-            if self._detect_edges:
-                self._process = (
-                    ffmpeg
-                    .input(self._video_path, ss=START_POS)
-                    .filter('format', 'gray')  # Convert to grayscale
-                    #.filter('prewitt', scale=1.5)
-                    .filter('sobel', scale=self._edge_factor)  # Edge detection
-                    #.filter('edgedetect', mode='canny', low=20/255, high=50/255)  # low=0.02, high=0.1
-                    .filter('negate')  # Invert colors
-                    #.filter('eq', contrast=1000.0, brightness=-1.0, gamma=0.1)  # Darken edges (contrast=3.0, brightness=-0.2)
-                    .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
-                    .run_async(pipe_stdout=True, pipe_stderr=False)
-                )
-            else:
-                self._process = (
-                    ffmpeg
-                    .input(self._video_path, ss=START_POS)
-                    .output('pipe:', format='rawvideo', pix_fmt='rgb24', vframes=self._end_frame_index - self._start_frame_index)
-                    .run_async(pipe_stdout=True, pipe_stderr=False)
-                )
 
-        TARGET_TIME_MS = 1000 / self._fps  # Desired frame interval in ms
+        # Run FFmpeg without showing a console window
+        if self._detect_edges:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(START_POS),  # Fast seek FIRST
+                "-i", self._video_info.video_path,  # Input file AFTER
+                "-vframes", str(self._end_frame_index - self._start_frame_index),  # Number of frames to process
+                "-vf", f"format=gray, sobel=scale={self._edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                "-f", "rawvideo",  # Output format
+                "-pix_fmt", "rgb24",  # Pixel format
+                "-nostdin",  # Disable interaction on standard input
+                "-"  # Output to pipe
+            ]
+        else:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-loglevel", "quiet",  # Suppress all FFmpeg logging
+                "-ss", str(START_POS),  # Fast seek FIRST
+                "-i", self._video_info.video_path,  # Input file AFTER
+                "-vframes", str(self._end_frame_index - self._start_frame_index),  # Number of frames to process
+                "-f", "rawvideo",  # Output format
+                "-pix_fmt", "rgb24",  # Pixel format
+                "-nostdin",  # Disable interaction on standard input
+                "-"  # Output to pipe
+            ]
+
+        self._process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **FFMPEG_NOWINDOW_KWARGS)
+
+        TARGET_TIME_MS = 1000 / self._video_info.fps  # Desired frame interval in ms
 
         # Start audio thread
         with QMutexLocker(self._process_mutex):  # 🔒
             if not self._running:  # In case stop() was called before creating the thread
                 self.safe_disconnect()
                 return
-            self._audio_thread = AudioPlayer(self._video_path, START_POS, self._volume, self._speed)
+            self._audio_thread = AudioPlayer(self._video_info, START_POS, self._volume, self._speed)
             self._audio_thread.start()
 
         frame_timer = QElapsedTimer()
@@ -278,7 +341,7 @@ class VideoPlayer(QThread):
     def read_one_frame(self, frame_bytes):
         with QMutexLocker(self._process_mutex):  # 🔒
             if not self._running or self._process.poll() is not None:
-                print("Error: Cannot read frame.")
+                print("Skipping next frame: FFmpeg is still busy decoding it")
                 return None
             
             try:
@@ -314,15 +377,7 @@ class VideoPlayer(QThread):
                 # self._process.stderr.close()
                 self._process.terminate()  # kill
                 self._process.wait()
-
-
-    def get_frame_size(self):
-        probe = ffmpeg.probe(self._video_path)
-        video_info = next(stream for stream in probe['streams'] if stream['codec_type'] == 'video')
-        width = int(video_info['width'])
-        height = int(video_info['height'])
-        return width, height
-
+    
 
     def set_volume(self, volume):
         """Dynamically change FFmpeg audio volume."""
