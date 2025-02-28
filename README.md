@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.8.4-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.8.5-blue.svg)
 
-# ShotBoard v0.8.4
+# ShotBoard v0.8.5
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -65,10 +65,10 @@ Ensure **Python 3.10.6** is installed on your system (although it might work on 
 
 ### Install the Necessary Dependencies
 - Still in Command Prompt, type the following command:
-`pip install PyQt5 opencv-python ffmpeg-python numpy scikit-image pyaudio matplotlib`
+`pip install PyQt5 opencv-python numpy scikit-image pyaudio matplotlib`
 
 - If you encounter permission issues, try:
-`pip install --user PyQt5 opencv-python ffmpeg-python numpy scikit-image pyaudio matplotlib`
+`pip install --user PyQt5 opencv-python numpy scikit-image pyaudio matplotlib`
 
 You're now ready to run **ShotBoard**! 🎉
 

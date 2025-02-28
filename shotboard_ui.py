@@ -9,7 +9,7 @@ from PyQt5.QtGui import QImage, QPixmap
 
 
 # Image dimension for storage
-STORED_IMAGE_SIZE = (1024, 576) # h = w * 0.5625
+STORED_IMAGE_SIZE = (1024, 576) # h = w * 0.5625  # ratio = 16/9
 
 SHOT_WIDGET_SELECT_COLOR = "#f9a825"  # orange
 SHOT_WIDGET_MARGIN = 4  # also margin between the scrollarea frame and the widgets
@@ -18,13 +18,13 @@ GRID_LAYOUT_SPACING = 6
 SHOT_IMAGE_SIZES = {}
 SHOT_IMAGE_SIZES_MIN = 4
 SHOT_IMAGE_SIZES_MAX = 10
+DEFAULT_SHOT_IMAGE_SIZE = 7
 assert SHOT_IMAGE_SIZES_MAX >= SHOT_IMAGE_SIZES_MIN
 for i in range(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX + 1):
     TOTAL_TARGET_WIDTH = 1866
     img_width = int((TOTAL_TARGET_WIDTH + GRID_LAYOUT_SPACING) / i - (2 * SHOT_WIDGET_MARGIN + 2) - GRID_LAYOUT_SPACING)
-    img_height = round(img_width * 0.5625)  # ratio = 16/9 (inv = 0.5625)
+    img_height = round(img_width * 0.5625)  # ratio = 16/9
     SHOT_IMAGE_SIZES[i] = (img_width, img_height)
-DEFAULT_SHOT_IMAGE_SIZE = 10
 
 SHOT_WIDGET_PROGRESSBAR_COLOR = "#3a9ad9" #"#0284eb"  # blue
 SHOT_WIDGET_PROGRESSBAR_HEIGHT = 15
@@ -436,8 +436,6 @@ class ShotWidget(QFrame):
 
 
     def set_end_frame_index(self, end_frame_index, reset_thumbnail):
-        if self._start_frame_index >= end_frame_index:
-            pass
         assert end_frame_index > self._start_frame_index
         self._end_frame_index = end_frame_index
         self._frame_progress_bar.setMaximum(end_frame_index - 1)
@@ -513,9 +511,10 @@ class ShotWidget(QFrame):
 
     def request_thumbnail(self, priority):
         """Request a thumbnail from the shared ThumbnailManager."""
-        self.safe_disconnect_from_thumbnail_manager()
-        ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_thumbnail_loaded, Qt.QueuedConnection)
-        ShotWidget.thumbnail_manager.request_thumbnail(self._start_frame_index, priority)
+        if not self._thumbnail_loaded:
+            self.safe_disconnect_from_thumbnail_manager()
+            ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_thumbnail_loaded, Qt.QueuedConnection)
+            ShotWidget.thumbnail_manager.request_thumbnail(self._start_frame_index, priority)
 
 
     # Callback function called by ThumbnailManager when a thumbnail is loaded
@@ -562,7 +561,7 @@ class ShotWidget(QFrame):
 
     def update_progress_bar(self, frame_index):
         self._frame_progress_bar.setValue(frame_index)
-        self._frame_progress_bar.setFormat(f"🎥{self._shot_number}   🎞%v")
+        self._frame_progress_bar.setFormat(f"🎥 {self._shot_number}  🎞 %v")
 
 
     def closeEvent(self, event):

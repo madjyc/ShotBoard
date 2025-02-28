@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.4"
+APP_VERSION = "0.8.5"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
@@ -707,6 +707,7 @@ class ShotBoard(QMainWindow):
         super().resizeEvent(event)
 
 
+    # @log_function_name(color=PRINT_GREEN_COLOR)
     def delayed_update(self):
         # self._scroll_area.setUpdatesEnabled(True)
         self.update_grid_layout()
@@ -714,7 +715,6 @@ class ShotBoard(QMainWindow):
 
     #@log_function_name()
     def eventFilter(self, obj, event):
-        print(f"")
         if self._ui_enabled:
             if event.type() == QEvent.MouseButtonPress:
                 if event.button() == Qt.RightButton:
@@ -952,7 +952,7 @@ class ShotBoard(QMainWindow):
         
         ShotWidget.thumbnail_manager.clear_priority_list()
         for shot_widget in visible_shot_widgets:
-            shot_widget.initialise_thumbnail(True)
+            shot_widget.request_thumbnail(True)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1123,8 +1123,7 @@ class ShotBoard(QMainWindow):
         # self._scroll_area.setUpdatesEnabled(False)
         num_img_per_row = self._zoom_spinbox.value()
         widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
-        if self._shot_widgets:
-            resize_shot_widgets = (self._shot_widgets[0].geometry() != widget_size)
+        resize_shot_widgets = (self._shot_widgets[0].geometry() != widget_size) if self._shot_widgets else False
 
         progress_dialog = None
         if len(self._db) > 0:
