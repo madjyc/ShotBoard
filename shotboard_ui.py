@@ -61,7 +61,9 @@ class ThumbnailLoader(QRunnable):
     def __init__(self, video_info, frame_index):
         super().__init__()
         self.setAutoDelete(True)
+        self._running = True
         self._signals = ThumbnailLoader.Signals()
+        self._signals.destroyed.connect(self._on_signals_destroyed)
 
         self._video_info = video_info
         self._frame_index = frame_index
@@ -92,26 +94,39 @@ class ThumbnailLoader(QRunnable):
                 **FFMPEG_NOWINDOW_KWARGS
             )
 
-            out, err = process.communicate()
-            if process.returncode != 0:
-                print("Error: Cannot extract frame with FFmpeg.")
-                print(err.decode())
-                self._signals.thumbnail_failed.emit(self._frame_index)
-                return
+            if self._running:
+                out, err = process.communicate()
+                if process.returncode != 0:
+                    print("Error: Cannot extract frame with FFmpeg.")
+                    print(err.decode())
+                    self._signals.thumbnail_failed.emit(self._frame_index)
+                    return
 
-            pixmap = QPixmap(STORED_IMAGE_SIZE[0], STORED_IMAGE_SIZE[1])
-            if pixmap.loadFromData(out):
-                pixmap = pixmap.scaled(
-                    STORED_IMAGE_SIZE[0], 
-                    STORED_IMAGE_SIZE[1], 
-                    Qt.KeepAspectRatio, 
-                    Qt.SmoothTransformation  # For some reason, Qt.SmoothTransformation works fine here, but not downstream
-                )
-            else:
-                pixmap.fill(Qt.darkCyan)  # Default black in case of error
-                print("Failed to load image data.")
+            if self._running:
+                pixmap = QPixmap(STORED_IMAGE_SIZE[0], STORED_IMAGE_SIZE[1])
+                if pixmap.loadFromData(out):
+                    pixmap = pixmap.scaled(
+                        STORED_IMAGE_SIZE[0], 
+                        STORED_IMAGE_SIZE[1], 
+                        Qt.KeepAspectRatio, 
+                        Qt.SmoothTransformation  # For some reason, Qt.SmoothTransformation works fine here, but not downstream
+                    )
+                else:
+                    pixmap.fill(Qt.darkCyan)  # Default black in case of error
+                    print("Failed to load image data.")
 
-            self._signals.thumbnail_loaded.emit(self._frame_index, pixmap)
+            if self._running:
+                self._signals.thumbnail_loaded.emit(self._frame_index, pixmap)
+
+
+    def _on_signals_destroyed(self):
+        """ Mark the task as inactive when its signals object is deleted. """
+        self._running = False
+
+
+    def __del__(self):
+        """ Mark the task as inactive when it gets garbage collected. """
+        self._running = False
 
 
 ##

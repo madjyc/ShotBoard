@@ -32,10 +32,10 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.5"
+APP_VERSION = "0.8.6"
 
 # Main UI
-DEFAULT_GEOMETRY = QRect(100, 100, 1280, 800)
+DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
 DEFAULT_TITLE = "ShotBoard"
 
 # SSIM shot detection
@@ -63,7 +63,7 @@ PRINT_GREEN_COLOR = '\033[92m'  # green
 PRINT_YELLOW_COLOR  = '\033[93m'  # yellow
 PRINT_CYAN_COLOR = '\033[96m'  # cyan
 
-# Use save extra-shortcut or not
+# Use save extra-shortcut - or not
 RIGHT_CLICK_SAVE = True
 
 
