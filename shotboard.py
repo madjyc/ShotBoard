@@ -32,11 +32,11 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.6"
+APP_VERSION = "0.8.7"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
-DEFAULT_TITLE = "ShotBoard"
+DEFAULT_TITLE = "𝗦𝗵𝗼𝘁𝗯𝗼𝗮𝗿𝗱"
 
 # SSIM shot detection
 SIM_DROP_THRESHOLD_MIN = 0.05
@@ -996,21 +996,20 @@ class ShotBoard(QMainWindow):
         title = f"{DEFAULT_TITLE} {APP_VERSION}"
 
         if self._video_info.video_path:
-            title += f"   Video: {os.path.basename(self._video_info.video_path)}"
+            title += f"   𝗩𝗶𝗱𝗲𝗼 {os.path.basename(self._video_info.video_path)}"
         else:
-            title += "   Video: (undefined)"
+            title += "   𝗩𝗶𝗱𝗲𝗼 (undefined)"
 
         if self._db_path:
-            title += f"   Shot List: {os.path.basename(self._db_path)}"
+            title += f"   𝗦𝗵𝗼𝘁 𝗟𝗶𝘀𝘁 {os.path.basename(self._db_path)}"
         else:
-            title += "   Shot List: (undefined)"
+            title += "   𝗦𝗵𝗼𝘁 𝗟𝗶𝘀𝘁 (undefined)"
 
-        # Add '*' if database has unsaved changes
         if self._db.is_dirty():
-            title += " *"
+            title += " ⚠(𝗨𝗻𝘀𝗮𝘃𝗲𝗱 - Right-click to save)"
 
         self.setWindowTitle(title)
-   
+
 
     @log_function_name()
     def update_status_bar(self):
@@ -1020,10 +1019,10 @@ class ShotBoard(QMainWindow):
         shots_per_2_hours = round(len(self._db) / duration_h) * 2
 
         self._info_label.setText(
-            f"Duration: {duration_hms}   "
-            f"FPS: {self._video_info.fps:.3f}   "
-            f"Resolution: {self._video_info.frame_width}x{self._video_info.frame_height} ({ratio:.2f})   "
-            f"Shots: {len(self._db)} (avg. {shots_per_2_hours} shots/2-hours)"
+            f"𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {duration_hms}   "
+            f"𝗙𝗣𝗦 {self._video_info.fps:.3f}   "
+            f"𝗥𝗲𝘀𝗼𝗹𝘂𝘁𝗶𝗼𝗻 {self._video_info.frame_width}x{self._video_info.frame_height} ({ratio:.2f})   "
+            f"𝗦𝗵𝗼𝘁𝘀 {len(self._db)} (avg. {shots_per_2_hours} shots/2-hours)"
         )
 
     
@@ -1069,7 +1068,7 @@ class ShotBoard(QMainWindow):
 
     def reset_all(self):
         self.stop_video()
-        self.seek_video(0)
+        self._mediaplayer.reset_frame()
         self._history.clear()
         self.clear_shot_widgets()
         self._db.clear_shots()
@@ -1139,7 +1138,7 @@ class ShotBoard(QMainWindow):
             i, j = 0, 0
             while i < len(self._shot_widgets) and j < len(self._db):
                 shot_widget = self._shot_widgets[i]
-                db_start_frame_index = self._db[j]
+                start_frame_index = self._db[j]
 
                 shot_widget.set_shot_number(i)
 
@@ -1147,16 +1146,16 @@ class ShotBoard(QMainWindow):
                     shot_widget.resize(num_img_per_row)
 
                 widget_start_frame_index = shot_widget.get_start_frame_index()
-                if widget_start_frame_index == db_start_frame_index:
+                if widget_start_frame_index == start_frame_index:
                     # This widget is OK, move on to the next one
                     i += 1
                     j += 1
-                elif widget_start_frame_index < db_start_frame_index:
+                elif widget_start_frame_index < start_frame_index:
                     # This widget is no longer needed, remove it
                     self.delete_shot_widget(i)
                 else:
                     # Start frame index in _db is missing from _shot_widgets, insert it
-                    self.create_shot_widget(i, db_start_frame_index)
+                    self.create_shot_widget(i, start_frame_index)
                     i += 1
                     j += 1
 

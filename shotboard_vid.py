@@ -341,7 +341,7 @@ class VideoPlayer(QThread):
     def read_one_frame(self, frame_bytes):
         with QMutexLocker(self._process_mutex):  # 🔒
             if not self._running or self._process.poll() is not None:
-                print("Skipping next frame: FFmpeg is still busy decoding it")
+                print("Skipping next frame: FFmpeg still busy decoding")
                 return None
             
             try:
