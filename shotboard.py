@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence
 
 
-APP_VERSION = "0.8.7"
+APP_VERSION = "0.8.8"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)

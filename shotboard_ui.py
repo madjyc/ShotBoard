@@ -376,8 +376,7 @@ class ShotWidget(QFrame):
         self._is_selected = False
 
         # Calculate shot timestamp
-        self._start_timestamp = str(datetime.timedelta(seconds=int(start_frame_index / video_info.fps)))
-
+        self._duration_msf = self.format_duration(self._start_frame_index, self._end_frame_index, self._video_info.fps)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN)
@@ -423,7 +422,18 @@ class ShotWidget(QFrame):
         self.setFrameStyle(QFrame.Box)
         self.resize(num_img_per_row)
         self._thumbnail_loaded = False
-    
+
+
+    def format_duration(self, start_frame_index, end_frame_index, fps):
+        total_frames = end_frame_index - start_frame_index
+        total_seconds = total_frames // fps
+        remaining_frames = total_frames % fps
+
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+
+        return f"{int(minutes):02}:{int(seconds):02}+{int(remaining_frames):02}"
+
 
     def set_shot_number(self, number):
         self._shot_number = number
@@ -459,6 +469,7 @@ class ShotWidget(QFrame):
         assert end_frame_index > self._start_frame_index
         self._end_frame_index = end_frame_index
         self._frame_progress_bar.setMaximum(end_frame_index - 1)
+        self._duration_msf = self.format_duration(self._start_frame_index, self._end_frame_index, self._video_info.fps)
         self.update_progress_bar(self._start_frame_index)
         if reset_thumbnail:
             self.initialise_thumbnail(True)
@@ -579,7 +590,7 @@ class ShotWidget(QFrame):
 
     def update_progress_bar(self, frame_index):
         self._frame_progress_bar.setValue(frame_index)
-        self._frame_progress_bar.setFormat(f"🎥 {self._shot_number} ({self._start_timestamp})  🎞 %v")
+        self._frame_progress_bar.setFormat(f"🎥 {self._shot_number} ({self._duration_msf})  🎞 %v")
 
 
     def closeEvent(self, event):
