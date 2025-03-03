@@ -147,7 +147,7 @@ class SBMediaPlayer(QLabel):
 
         self._videoplayer = VideoPlayer(self._video_info, start_frame_index, self._video_info.frame_count, SBMediaPlayer.volume, SBMediaPlayer.speed, SBMediaPlayer.detect_edges, SBMediaPlayer.edge_factor)
         if self._videoplayer:
-            self._videoplayer.frame_signal.connect(self.on_frame_loaded)
+            self._videoplayer.frame_loaded.connect(self.on_frame_loaded)
             self._videoplayer.start()  # Start the video rendering thread
 
         self.set_state(self.PlayingState)

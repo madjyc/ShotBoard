@@ -20,6 +20,9 @@ if sys.platform == "win32":
     FFMPEG_NOWINDOW_KWARGS["startupinfo"] = startupinfo
 
 
+MAX_VOLUME_FACTOR = 2.0
+
+
 #
 # VIDEO INFO
 #
@@ -73,7 +76,7 @@ class AudioPlayer(QThread):
 
         self._video_info = video_info
         self._start_pos = start_pos
-        self.set_volume(volume)
+        self.set_volume(volume)  # Ensure valid range
         self._speed = speed
 
         self._running = True
@@ -142,10 +145,10 @@ class AudioPlayer(QThread):
 
             try:
                 # Apply a linear volume factor
-                audio_bytes = ((np.frombuffer(audio_bytes, dtype=np.int16) * self._volume).astype(np.int16)).tobytes()
+                audio_samples = ((np.frombuffer(audio_bytes, dtype=np.int16) * self._volume).astype(np.int16))
                 
                 # Write the adjusted audio data to the stream
-                self.audio_stream.write(audio_bytes)
+                self.audio_stream.write(audio_samples.tobytes())
             except (OSError) as e:
                 print(f"Error playing audio data: {e}")
                 break
@@ -168,10 +171,10 @@ class AudioPlayer(QThread):
 
     def set_volume(self, volume):
         """Dynamically change the audio volume."""
-        self._volume = max(0.0, min(1.0, volume))  # Limit volume between 0% and 100%
+        self._volume = max(0.0, min(MAX_VOLUME_FACTOR, volume))  # Limit volume between 0% and 100% of MAX_VOLUME_FACTOR
 
 
-    def gt_volume(self):
+    def get_volume(self):
         return self._volume
 
 
@@ -213,20 +216,21 @@ class AudioPlayer(QThread):
 
 
 class VideoPlayer(QThread):
-    frame_signal = pyqtSignal()  # Signal to send frames to the UI
+    frame_loaded = pyqtSignal()  # Signal to send frames to the UI
 
     def __init__(self, video_info, start_frame_index, end_frame_index, volume, speed, detect_edges, edge_factor, parent=None):
         super().__init__(parent)
+        self._audio_thread = None  # Store reference to audio thread
+
         self._video_info = video_info
         self._frame_size = (video_info.frame_height, video_info.frame_width, 3)
         self._start_frame_index = start_frame_index
         self._end_frame_index = end_frame_index
-        self._volume = max(0.0, min(1.0, volume))  # Ensure valid range
+        self.set_volume(volume)  # Ensure valid range
         self._speed = max(0.5, min(2.0, speed))  # Limit to [0.5x, 2.0x]
         self._detect_edges = detect_edges
         self._edge_factor = edge_factor
 
-        self._audio_thread = None  # Store reference to audio thread
         self._running = True
         self._paused = False
         self._process_mutex = QMutex()
@@ -242,7 +246,7 @@ class VideoPlayer(QThread):
             return
 
         assert self._video_info.fps > 0
-        START_POS = self._start_frame_index / self._video_info.fps
+        START_POS = max(0, (self._start_frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
         FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
 
         # Start video process (only video)
@@ -315,7 +319,7 @@ class VideoPlayer(QThread):
 
             if not self._frame_queue.full():
                 self._frame_queue.put((frame_index, image))  # Thread-safe
-                self.frame_signal.emit()  # Notify UI to update
+                self.frame_loaded.emit()  # Notify UI to update
             else:
                 print(f"Image queue full: Dropping frame {frame_index}.")
 
@@ -361,7 +365,7 @@ class VideoPlayer(QThread):
 
     def safe_disconnect(self):
         try:
-            self.frame_signal.disconnect()
+            self.frame_loaded.disconnect()
         except TypeError:
             pass
 
@@ -381,8 +385,9 @@ class VideoPlayer(QThread):
 
     def set_volume(self, volume):
         """Dynamically change FFmpeg audio volume."""
+        self._volume = max(0.0, min(MAX_VOLUME_FACTOR, volume))  # Limit volume between 0% and 100% of MAX_VOLUME_FACTOR
         if self._audio_thread:
-            self._audio_thread.set_volume(volume)
+            self._audio_thread.set_volume(self._volume)
 
 
     def pause(self):

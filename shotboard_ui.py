@@ -3,7 +3,6 @@ from shotboard_vid import *
 import subprocess
 import queue
 import bisect
-import datetime
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QThreadPool, QRunnable, QEvent, QTimer, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker, QRect
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap
@@ -19,7 +18,7 @@ GRID_LAYOUT_SPACING = 6
 SHOT_IMAGE_SIZES = {}
 SHOT_IMAGE_SIZES_MIN = 4
 SHOT_IMAGE_SIZES_MAX = 10
-DEFAULT_SHOT_IMAGE_SIZE = 7
+DEFAULT_SHOT_IMAGE_SIZE = 6
 assert SHOT_IMAGE_SIZES_MAX >= SHOT_IMAGE_SIZES_MIN
 for i in range(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX + 1):
     TOTAL_TARGET_WIDTH = 1866
@@ -162,7 +161,6 @@ class ThumbnailManager(QObject):
     def clear(self):
         """Clears all stored thumbnails and resets the queue."""
         self.safe_disconnect_from_loaders()
-        self.safe_disconnect_thumbnail_loaded_signal()  # disconnect all shot widget slots
         with QWriteLocker(self.lock):
             self.running_tasks.clear()
             self.thumbnails.clear()
@@ -179,14 +177,6 @@ class ThumbnailManager(QObject):
         try:
             self.disconnect(self.on_thumbnail_loaded)
             self.disconnect(self.on_loading_failed)
-        except TypeError:
-            pass  # Already disconnected
-
-
-    def safe_disconnect_thumbnail_loaded_signal(self):
-        """Disconnect all shot widget slots"""
-        try:
-            self.thumbnail_loaded.disconnect()
         except TypeError:
             pass  # Already disconnected
 
@@ -369,7 +359,7 @@ class ShotWidget(QFrame):
     def __init__(self, shot_number, video_info, start_frame_index, end_frame_index, num_img_per_row):
         super().__init__()
         self._videoplayer = None
-        self._shot_number = shot_number
+        self._shot_number = shot_number  # 0 is invalid (i.e. not assigned yet)
         self._video_info = video_info
         self._start_frame_index = start_frame_index  # included
         self._end_frame_index = end_frame_index  # excluded (i.e. next frame's start_frame_index)
@@ -420,8 +410,9 @@ class ShotWidget(QFrame):
         self.setLayout(layout)
 
         self.setFrameStyle(QFrame.Box)
-        self.resize(num_img_per_row)
+
         self._thumbnail_loaded = False
+        self.resize(num_img_per_row)
 
 
     def format_duration(self, start_frame_index, end_frame_index, fps):
@@ -436,7 +427,11 @@ class ShotWidget(QFrame):
 
 
     def set_shot_number(self, number):
-        self._shot_number = number
+        self._shot_number = number  # /!\ 1-based (not 0-based)
+
+
+    def get_shot_number(self):
+        return self._shot_number  # /!\ 1-based (not 0-based)
 
 
     def resize(self, num_img_per_row):
@@ -446,7 +441,9 @@ class ShotWidget(QFrame):
         widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
         self.setFixedSize(widget_size[0], widget_size[1])
 
-        self.initialise_thumbnail(False)
+        # Update the thumbnail only if the shot widget has been assigned to its manager
+        if self._shot_number > 0:
+            self.initialise_thumbnail(False)
 
 
     def is_thumbnail_loaded(self):
@@ -515,8 +512,7 @@ class ShotWidget(QFrame):
         self._cursor_timer.start()  # Start tracking inactivity
         self._videoplayer = VideoPlayer(self._video_info, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.speed, ShotWidget.detect_edges, ShotWidget.edge_factor)
         if self._videoplayer:
-            self.safe_disconnect_from_thumbnail_manager()  # In case it was waiting for a thumbnail
-            self._videoplayer.frame_signal.connect(self.on_frame_loaded)
+            self._videoplayer.frame_loaded.connect(self.on_frame_loaded)
             self._videoplayer.start()  # Start the video rendering thread
         self.hovered.emit(True)
 
@@ -531,30 +527,14 @@ class ShotWidget(QFrame):
 
 
     def initialise_thumbnail(self, priority=False):
-        if ShotWidget.thumbnail_manager.has_thumbnail(self._start_frame_index):
-            pixmap = ShotWidget.thumbnail_manager.get_thumbnail(self._start_frame_index)
-            self.update_frame(self._start_frame_index, pixmap)
-        else:
-            self._thumbnail_loaded = False
-            self.request_thumbnail(priority)
+        self._thumbnail_loaded = False
+        self.request_thumbnail(priority)
 
 
     def request_thumbnail(self, priority):
         """Request a thumbnail from the shared ThumbnailManager."""
         if not self._thumbnail_loaded:
-            self.safe_disconnect_from_thumbnail_manager()
-            ShotWidget.thumbnail_manager.thumbnail_loaded.connect(self.on_thumbnail_loaded, Qt.QueuedConnection)
             ShotWidget.thumbnail_manager.request_thumbnail(self._start_frame_index, priority)
-
-
-    # Callback function called by ThumbnailManager when a thumbnail is loaded
-    def on_thumbnail_loaded(self, frame_index, pixmap):
-        """Set the thumbnail loaded by ThumbnailManager."""
-        if frame_index != self._start_frame_index:
-            return
-
-        self.safe_disconnect_from_thumbnail_manager()
-        self.update_frame(self._start_frame_index, pixmap)
 
 
     # Callback function called by VideoPlayer when a frame is ready to be displayed
@@ -573,13 +553,6 @@ class ShotWidget(QFrame):
                 return
 
 
-    def safe_disconnect_from_thumbnail_manager(self):
-        try:
-            ShotWidget.thumbnail_manager.thumbnail_loaded.disconnect(self.on_thumbnail_loaded)
-        except TypeError:
-            pass  # Already disconnected
-
-
     def update_frame(self, frame_index, pixmap):
         scaled_pixmap = pixmap.scaled(self._image_label.maximumWidth(), self._image_label.maximumHeight(), Qt.KeepAspectRatio, Qt.FastTransformation)  # /!\ Qt.SmoothTransformation stalls when ThreadPoll is running
         self._image_label.setPixmap(scaled_pixmap)
@@ -595,7 +568,6 @@ class ShotWidget(QFrame):
 
     def closeEvent(self, event):
         self.on_image_label_leave()
-        self.safe_disconnect_from_thumbnail_manager()
         event.accept()
 
 
@@ -611,16 +583,18 @@ class ShotWidget(QFrame):
 
 
 # /!\ UNUSED
-class ShotWidgetManager:
+class ShotWidgetManager(QObject):
     """
     A class that manages a dictionary of ShotWidget instances, referenced by start_frame_index.
     """
     # Signals
+    thumbnail_loaded = pyqtSignal(ShotWidget)
     hovered = pyqtSignal(ShotWidget, bool)  # Signal includes the shot widget and a boolean to indicate if the mouse cursor is entering (True) or leaving (False) the widget
     clicked = pyqtSignal(ShotWidget, bool)  # Signal includes the shot widget and a boolean to indicate Shift key status
 
 
     def __init__(self):
+        super().__init__()
         self._shot_widgets = {}
         self._start_frame_indexes = []  # Synchronized list to store keys in sorted order
         self._video_info = None
@@ -630,7 +604,16 @@ class ShotWidgetManager:
 
     def set_video_info(self, video_info):
         self._video_info = video_info
-        
+        ShotWidget.thumbnail_manager.set_video_info(self._video_info)
+
+
+    def get_shot_widget_size(self):
+        if len(self._shot_widgets) > 0:
+            shot_widget = self[0]
+            return (shot_widget.width(), shot_widget.height())
+        else:
+            return (0, 0)
+
 
     def __len__(self):
         """
@@ -638,14 +621,19 @@ class ShotWidgetManager:
         Example: count = len(manager)
         """
         return len(self._shot_widgets)
+    
 
-
-    def __contains__(self, start_frame_index):
+    def __contains__(self, item):
         """
-        Allows checking if a start_frame_index exists in the manager using the 'in' operator.
+        Allows checking if either a start_frame_index or a ShotWidget exists in the manager using the 'in' operator.
         Example: if start_frame_index in manager:
+        Example: if shot_widget in manager:
         """
-        return start_frame_index in self._shot_widgets
+        if isinstance(item, int):  # Check if it's a start_frame_index
+            return item in self._shot_widgets
+        elif isinstance(item, ShotWidget):  # Check if it's a ShotWidget
+            return item in self._shot_widgets.values()
+        return False  # Unknown item type
 
 
     def index(self, shot_widget):
@@ -738,13 +726,33 @@ class ShotWidgetManager:
         self._shot_widgets[start_frame_index] = shot_widget
 
 
-    def insert_by_start_frame_index(self, start_frame_index, shot_widget):
+    def create_shot_widget(self, start_frame_index, end_frame_index, num_img_per_row):
+        # Create a new shot widget with default (invalid) shot number 0
+        shot_widget = ShotWidget(0, self._video_info, start_frame_index, end_frame_index, num_img_per_row)
+        shot_widget.hovered.connect(self.on_shot_widget_hovered)
+        shot_widget.clicked.connect(self.on_shot_widget_clicked)
+
+        # Add the new shot widget to the manager
+        index = self.add(shot_widget)
+
+        # Assign its shot number to the shot widget and ask to load its thumbnail
+        shot_widget.set_shot_number(index + 1)  # /!\ 1-based (not 0-based)
+        shot_widget.request_thumbnail(False)  # ShotWidget internally called request_thumbnail() too soon
+
+        # Keep the shot widget chain consistent
+        self._bridge_previous_shot_widget(index)
+
+        return shot_widget
+
+
+    def add(self, shot_widget):
         """
         Inserts or updates a ShotWidget in the dictionary and ensures start_frame_indexes remains sorted.
         If start_frame_index already exists, updates the dictionary and returns its position.
         Otherwise, inserts it while maintaining sorted order and returns the new position.
         """
-        # Update existing entry if possible
+        # Update entry if it already exists
+        start_frame_index = shot_widget.get_start_frame_index()
         if start_frame_index in self._shot_widgets:
             self._shot_widgets[start_frame_index] = shot_widget
             return self._start_frame_indexes.index(start_frame_index)  # Return existing position
@@ -769,14 +777,14 @@ class ShotWidgetManager:
         start_frame_index = self._start_frame_indexes[index]
 
         # Remove the ShotWidget from the dictionary
-        del self._shot_widgets[start_frame_index]
-        # shot_widget.hovered.disconnect(self.on_shot_widget_hovered)
-        # shot_widget.clicked.disconnect(self.on_shot_widget_clicked)
+        shot_widget = self._shot_widgets.pop(start_frame_index)
+        shot_widget.hovered.disconnect(self.on_shot_widget_hovered)
+        shot_widget.clicked.disconnect(self.on_shot_widget_clicked)
 
         # Remove the start_frame_index from the list
         del self._start_frame_indexes[index]
 
-        # Keep chain consistent
+        # Keep the shot widget chain consistent
         self._bridge_previous_shot_widget(index)
 
 
@@ -786,40 +794,40 @@ class ShotWidgetManager:
         Example: manager.delete_by_start_frame_index(start_frame_index)
         """
         index = self.index_by_start_frame_index(start_frame_index)
-        del self._shot_widgets[start_frame_index]
-        # shot_widget.hovered.disconnect(self.on_shot_widget_hovered)
-        # shot_widget.clicked.disconnect(self.on_shot_widget_clicked)
+
+        # Remove the ShotWidget from the dictionary
+        shot_widget = self._shot_widgets.pop(start_frame_index)
+        shot_widget.hovered.disconnect(self.on_shot_widget_hovered)
+        shot_widget.clicked.disconnect(self.on_shot_widget_clicked)
 
         # Remove the key from the sorted keys list
         if start_frame_index in self._start_frame_indexes:
             self._start_frame_indexes.remove(start_frame_index)
 
-        # Keep chain consistent
+        # Keep the shot widget chain consistent
         self._bridge_previous_shot_widget(index)
 
 
-    def create_shot_widget(self, start_frame_index, end_frame_index, num_img_per_row):
-        shot_widget = ShotWidget(-1, self._video_info, start_frame_index, end_frame_index, num_img_per_row)
-        shot_widget.hovered.connect(self.on_shot_widget_hovered)
-        shot_widget.clicked.connect(self.on_shot_widget_clicked)
-        index = self.insert_by_start_frame_index(start_frame_index, shot_widget)
-        shot_widget.set_shot_number(index)
-
-        # Keep chain consistent
-        self._bridge_previous_shot_widget(index)
-
-        return shot_widget
-
-
-    # Keep chain consistent
+    # Keep the shot widget chain consistent
     def _bridge_previous_shot_widget(self, index):
         if index > 0:
-            prev_shot_widget = self._shot_widgets[index - 1]
+            prev_start_frame_index = self._start_frame_indexes[index - 1]
+            prev_shot_widget = self._shot_widgets[prev_start_frame_index]
             if index < len(self):
-                next_shot_widget = self._shot_widgets[index]  # Same index as deleted widget
+                next_start_frame_index = self._start_frame_indexes[index]  # Same index as deleted widget
+                next_shot_widget = self._shot_widgets[next_start_frame_index]
                 prev_shot_widget.set_end_frame_index(next_shot_widget.get_start_frame_index(), False)
             else:
                 prev_shot_widget.set_end_frame_index(self._video_info.frame_count, False)
+
+
+    # Slot called back by ThumbnailManager when a thumbnail has finished loading
+    def on_thumbnail_loaded(self, start_frame_index, pixmap):
+        """Set the thumbnail loaded by ThumbnailManager."""
+        shot_widget = self.get_by_start_frame_index(start_frame_index)
+        if shot_widget:
+            shot_widget.update_frame(start_frame_index, pixmap)
+            self.thumbnail_loaded.emit(shot_widget)
 
 
     def on_shot_widget_hovered(self, entering):
@@ -834,10 +842,11 @@ class ShotWidgetManager:
 
     def __iter__(self):
         """
-        Allows iterating over the start_frame_index keys in the manager.
-        Example: for start_frame_index in manager:
+        Allows iterating over ShotWidgets in order.
+        Example: for shot_widget in manager
+        Example: for i, shot_widget in enumerate(manager)
         """
-        return iter(self._start_frame_indexes)
+        return (self._shot_widgets[start_frame_index] for start_frame_index in self._start_frame_indexes)
 
 
     def sorted_keys(self):
@@ -881,7 +890,7 @@ class ShotWidgetManager:
         for start_frame_index, shot_widget in other.items():
             if not isinstance(shot_widget, ShotWidget):
                 raise TypeError("Value must be an instance of ShotWidget")
-            self.insert_by_start_frame_index[start_frame_index] = shot_widget  # Ensure sorted_keys is updated
+            self.add(shot_widget)  # Ensure sorted_keys is updated
 
 
     def __repr__(self):
@@ -892,34 +901,29 @@ class ShotWidgetManager:
         return f"ShotWidgetManager({self._shot_widgets})"
 
 
-    def request_thumbnail(self, index, priority):
-        ShotWidget.thumbnail_manager.request_thumbnail(self[index], priority)
-
-
-    def request_thumbnail_by_start_frame_index(self, start_frame_index, priority):
-        ShotWidget.thumbnail_manager.request_thumbnail(start_frame_index, priority)
-
-
-    # Slot called back by ThumbnailManager when a thumbnail has finished loading
-    def on_thumbnail_loaded(self, frame_index, pixmap):
-        """Set the thumbnail loaded by ThumbnailManager."""
-        shot_widget = self.get_by_start_frame_index(frame_index)
-        if shot_widget:
-            shot_widget.update_frame(frame_index, pixmap)
-
-
-    def safe_disconnect_from_thumbnail_manager(self):
+    def safe_disconnect(self):
         try:
             ShotWidget.thumbnail_manager.thumbnail_loaded.disconnect(self.on_thumbnail_loaded)
+            self.hovered.disconnect()
+            self.clicked.disconnect()
         except TypeError:
             pass  # Already disconnected
+
+
+    # DEBUG: never called
+    def closeEvent(self, event):
+        """
+        Things to do when the object is about to be closed down
+        """
+        self.safe_disconnect()
+        event.accept()
 
 
     def __del__(self):
         """
         Things to do when the object is about to be deleted
         """
-        self.safe_disconnect_from_thumbnail_manager()
+        pass
 
 
 if __name__ == "__main__":
