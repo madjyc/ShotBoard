@@ -29,10 +29,10 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox, QDi
 from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
 from PyQt5.QtWidgets import QLabel, QPushButton, QToolButton, QCheckBox
 from PyQt5.QtWidgets import QAction, QStyle
-from PyQt5.QtGui import QKeySequence, QColor
+from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -566,11 +566,17 @@ class ShotBoard(QMainWindow):
         self._volume_slider.setStatusTip("Set the volume of the video.")
         ShotWidget.volume = self._volume_slider.value() * 0.01
 
+        # Volume label
+        self._volume_label = QLabel(f"{self._volume_slider.value():3}%")
+        self._volume_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._volume_label.setFixedWidth(28)
+
         # Create a layout for the volume slider and label
         volume_layout = QHBoxLayout()
         volume_layout.addStretch()
         volume_layout.addWidget(self._speaker_button)
         volume_layout.addWidget(self._volume_slider)
+        volume_layout.addWidget(self._volume_label)
         volume_layout.setSpacing(5)  # Adjust spacing between label and slider
 
         button_layout.addStretch()
@@ -895,51 +901,13 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_volume_slider_moved(self, volume):
         if self._speaker_button.isChecked():
+            self._volume_label.setText(f"{0:3}%")
             ShotWidget.volume = 0
             self._mediaplayer.set_volume(0)
         else:
+            self._volume_label.setText(f"{volume:3}%")
             ShotWidget.volume = volume * 0.01
             self._mediaplayer.set_volume(volume * 0.01)
-
-        # self.update_slider_color(volume)
-
-
-    @log_function_name(color=PRINT_GREEN_COLOR)
-    def update_slider_color(self, volume):
-        """
-        Update the QSlider color based on the volume value.
-        - Blue for 0-100
-        - Orange for 101-150
-        - Red for 151-200
-        """
-        if volume <= 100:
-            # Default blue color
-            color = QColor(0, 0, 255)  # Blue
-        elif volume <= 150:
-            # Interpolate between blue and orange
-            ratio = (volume - 100) / 50
-            color = QColor(255, int(165 * ratio), 0)  # Orange gradient
-        else:
-            # Interpolate between orange and red
-            ratio = (volume - 150) / 50
-            color = QColor(255, int(165 * (1 - ratio)), 0)  # Red gradient
-
-        # Apply the color to the slider's groove
-        self._volume_slider.setStyleSheet(f"""
-            QSlider::groove:horizontal {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {color.name()}, stop:1 {color.name()});
-                height: 8px;
-                border-radius: 4px;
-            }}
-            QSlider::handle:horizontal {{
-                background: {color.name()};
-                width: 16px;
-                height: 16px;
-                margin: -4px 0;
-                border-radius: 8px;
-            }}
-        """)
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
