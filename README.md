@@ -14,6 +14,7 @@ With **ShotBoard**, you can:
 - Display those shots as animated thumbnails in a grid-style storyboard for quick navigation.
 - Hover over thumbnails to preview the corresponding shots instantly.
 - Check the 'Lines' option to display the thumbnails as line drawings (discard all color and lighting information).
+- Export any selection of shots to MP4 or single frame to JPG/PNG.
 
 **ShotBoard** offers a seamless way to explore film storytelling.
 
