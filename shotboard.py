@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.1"
+APP_VERSION = "0.9.2"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -51,8 +51,8 @@ DEFAULT_DETECTION_SLIDER_VALUE = int(((SIM_DROP_THRESHOLD_DEFAULT - SIM_DROP_THR
 VIDEO_BACKGROUND_COLOR = "#000000"  # Black
 BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
 
-# Timestamp
-SLIDER_TIMESTAMP_MILLISECONDS = True
+# Timestamp in seconds vs milliseconds
+SLIDER_TIMESTAMP_MILLISECONDS = False
 
 # Debug
 LOG_FUNCTION_NAMES = False
@@ -1313,8 +1313,8 @@ class ShotBoard(QMainWindow):
         self.pause_video()
 
         # Get the current frame and evaluate the start and end frames of the shot
-        start_frame_index, end_frame_index = self._db.get_start_end_frame_indexes(frame_index)
-        if frame_index == start_frame_index or frame_index == end_frame_index - 1:
+        start_frame_index, _ = self._db.get_start_end_frame_indexes(frame_index)
+        if frame_index == start_frame_index:
             return
         
         self.enable_ui(False)
