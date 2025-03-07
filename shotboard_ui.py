@@ -11,18 +11,42 @@ from PyQt5.QtGui import QImage, QPixmap
 # Image dimension for storage
 STORED_IMAGE_SIZE = (1024, 576) # h = w * 0.5625  # ratio = 16/9
 
+# Default Qt5 values
+# scrollarea_height = self.scroll_area.viewport().height()
+# visible_area_top = self.scroll_area.verticalScrollBar().value()
+# visible_area_bottom = visible_area_top + scrollarea_height
+# vertical_spacing = self.grid_layout.verticalSpacing()
+# widget_height = clip_widget.height()
+# row, _, _, _ = self.grid_layout.getItemPosition(index)
+# clip_widget_top = SHOT_WIDGET_MARGIN + row * (widget_height + vertical_spacing)
+# clip_widget_bottom = clip_widget_top + widget_height
+#
+# scrollarea_width = SCROLL_AREA_BORDER + GRID_LAYOUT_MARGIN
+#                  + SHOT_IMAGE_SIZE_INDEX * SHOT_IMAGE_SIZES[SHOT_IMAGE_SIZE_INDEX][0]
+#                  + (SHOT_IMAGE_SIZE_INDEX - 1) * GRID_LAYOUT_SPACING
+#                  + GRID_LAYOUT_MARGIN + SCROLL_AREA_BORDER
+#
+# scrollarea_available_space = scrollarea_width - 2 * (SCROLL_AREA_BORDER + GRID_LAYOUT_MARGIN) - SCROLL_AREA_VERT_SCROLLBAR_WIDTH
+#
+# For SHOT_IMAGE_SIZE_INDEX = 6 in 1920x1080: scrollarea_width = 1866
+#
+SCROLL_AREA_BORDER = 1  # Left = right = self.scroll_area.frameWidth(), top = bottom = self.scroll_area.frameHeight()
+SCROLL_AREA_VERT_SCROLLBAR_WIDTH = 14  # scrollbar_width = self._scroll_area.verticalScrollBar().width()
+GRID_LAYOUT_MARGIN = 9  # left_margin, top_margin, right_margin, bottom_margin = self._grid_layout.getContentsMargins()
+GRID_LAYOUT_SPACING = 6  # horz_spacing = self._grid_layout.horizontalSpacing(), vert_spacing = self._grid_layout.verticalSpacing()
+
 SHOT_WIDGET_SELECT_COLOR = "#f9a825"  # orange
-SHOT_WIDGET_MARGIN = 4  # also margin between the scrollarea frame and the widgets
-GRID_LAYOUT_SPACING = 6
+SHOT_WIDGET_BORDER = 1
+SHOT_WIDGET_MARGIN = 4
 
 SHOT_IMAGE_SIZES = {}
 SHOT_IMAGE_SIZES_MIN = 4
 SHOT_IMAGE_SIZES_MAX = 10
-DEFAULT_SHOT_IMAGE_SIZE = 6
+DEFAULT_SHOT_IMAGE_SIZE_INDEX = 6
 assert SHOT_IMAGE_SIZES_MAX >= SHOT_IMAGE_SIZES_MIN
 for i in range(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX + 1):
-    TOTAL_TARGET_WIDTH = 1866
-    img_width = int((TOTAL_TARGET_WIDTH + GRID_LAYOUT_SPACING) / i - (2 * SHOT_WIDGET_MARGIN + 2) - GRID_LAYOUT_SPACING)
+    TOTAL_TARGET_WIDTH = 1866  # scrollarea_width - SCROLL_AREA_VERT_SCROLLBAR_WIDTH - (2 * GRID_LAYOUT_MARGIN) - (2 * SCROLL_AREA_BORDER)
+    img_width = int((TOTAL_TARGET_WIDTH + GRID_LAYOUT_SPACING) / i - GRID_LAYOUT_SPACING - (2 * SHOT_WIDGET_BORDER) - (2 * SHOT_WIDGET_MARGIN))
     img_height = round(img_width * 0.5625)  # ratio = 16/9
     SHOT_IMAGE_SIZES[i] = (img_width, img_height)
 
@@ -32,16 +56,6 @@ SHOT_WIDGET_PROGRESSBAR_HEIGHT = 15
 SHOT_WIDGET_RESCAN_COLOR = "#3ad98a"  # green
 
 SHOT_WIDGET_HIDE_CURSOR_TIMEOUT = 200  # in ms
-
-# frame_thickness = self.scroll_area.frameWidth()
-# scrollarea_height = self.scroll_area.viewport().height()
-# visible_area_top = self.scroll_area.verticalScrollBar().value()
-# visible_area_bottom = visible_area_top + scrollarea_height
-# vertical_spacing = self.grid_layout.verticalSpacing()
-# widget_height = clip_widget.height()
-# row, _, _, _ = self.grid_layout.getItemPosition(index)
-# clip_widget_top = SHOT_WIDGET_MARGIN + row * (widget_height + vertical_spacing)
-# clip_widget_bottom = clip_widget_top + widget_height
 
 
 ##
@@ -350,7 +364,7 @@ class ShotWidget(QFrame):
     def evaluate_widget_size(num_img_per_row):
         if num_img_per_row in SHOT_IMAGE_SIZES:
             image_size = SHOT_IMAGE_SIZES[num_img_per_row]
-            widget_size = (image_size[0] + (2 * SHOT_WIDGET_MARGIN) + 2, image_size[1] + SHOT_WIDGET_PROGRESSBAR_HEIGHT + (3 * SHOT_WIDGET_MARGIN) + 2)
+            widget_size = (image_size[0] + (2 * SHOT_WIDGET_MARGIN) + (2 * SHOT_WIDGET_BORDER), image_size[1] + SHOT_WIDGET_PROGRESSBAR_HEIGHT + (3 * SHOT_WIDGET_MARGIN) + (2 * SHOT_WIDGET_BORDER))
             return widget_size
         else:
             raise KeyError(f"Error - Unkown number of images per row {num_img_per_row}")
@@ -428,6 +442,7 @@ class ShotWidget(QFrame):
 
     def set_shot_number(self, number):
         self._shot_number = number  # /!\ 1-based (not 0-based)
+        # self.update_progress_bar_format()
 
 
     def get_shot_number(self):
@@ -518,12 +533,16 @@ class ShotWidget(QFrame):
 
 
     def on_image_label_leave(self):
+        self.stop_videoplayer()
+        self.hovered.emit(False)
+
+
+    def stop_videoplayer(self):
         self._cursor_timer.stop()  # Stop hiding cursor
         self.setCursor(Qt.ArrowCursor)  # Ensure the cursor is visible
         if self._videoplayer:
             self._videoplayer.stop()  # Force disconnection
             self._videoplayer = None
-        self.hovered.emit(False)
 
 
     def initialise_thumbnail(self, priority=False):
@@ -563,6 +582,10 @@ class ShotWidget(QFrame):
 
     def update_progress_bar(self, frame_index):
         self._frame_progress_bar.setValue(frame_index)
+        self.update_progress_bar_format()
+
+
+    def update_progress_bar_format(self):
         self._frame_progress_bar.setFormat(f"🎥 {self._shot_number} ({self._duration_msf})  🎞 %v")
 
 
@@ -612,7 +635,7 @@ class ShotWidgetManager(QObject):
             shot_widget = self[0]
             return (shot_widget.width(), shot_widget.height())
         else:
-            return (0, 0)
+            return (1, 1)
 
 
     def __len__(self):
