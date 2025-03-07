@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import datetime
+import math
 from functools import wraps
 from inspect import signature
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTime, QElapsedTimer
@@ -32,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.2"
+APP_VERSION = "0.9.3"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -183,6 +184,8 @@ class ShotBoard(QMainWindow):
         self._selection_last_index = None
         self._video_info = VideoInfo()
         self._ui_enabled = True
+        self._hovered_shot_widget = None
+        self._old_zoom_value = DEFAULT_SHOT_IMAGE_SIZE_INDEX
 
         self._clock_emojis = ["🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"]
         self._loading_step = 0  # clock_emojis
@@ -543,7 +546,7 @@ class ShotBoard(QMainWindow):
         # Create an zoom spinbox
         self._zoom_spinbox = QSpinBox()
         self._zoom_spinbox.setRange(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX)
-        self._zoom_spinbox.setValue(DEFAULT_SHOT_IMAGE_SIZE)
+        self._zoom_spinbox.setValue(DEFAULT_SHOT_IMAGE_SIZE_INDEX)
         self._zoom_spinbox.valueChanged.connect(self.on_zoom_changed)
         self._zoom_spinbox.setStatusTip("Set the number of images in a row.")
         button_layout.addWidget(self._zoom_spinbox)
@@ -678,11 +681,45 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_menu_save_as(self):
+        if self._db_path is None:
+            # Generate a default filename based on the video file's name
+            video_path = self._video_info.video_path
+            if video_path:
+                # Replace the video extension with .json
+                base_name, _ = os.path.splitext(video_path)
+                suggested_path = f"{base_name}.json"
+            else:
+                # Fallback if video_path is not available
+                suggested_path = ""
+        else:
+            # Use self._db_path as the default filename
+            suggested_path = self._db_path
+
+        # Open the file dialog with the suggested filename
         options = QFileDialog.Options()
-        path, _ = QFileDialog.getSaveFileName(self, "Save Shot File", self._db_path, "Shot Files (*.json);;All Files (*)", options=options)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Shot File",
+            suggested_path,  # Use the suggested filename
+            "Shot Files (*.json);;All Files (*)",
+            options=options
+        )
+
         if path:
-            #if os.path.exists(path) and not QMessageBox.question(self, 'File Exists', f"The file {path} already exists. Do you want to overwrite it?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
-            #    return
+            # Remove the existing extension and enforce .json
+            base_name, _ = os.path.splitext(video_path)
+            path = f"{base_name}.json"
+
+            # Warn the user if the file exists
+            # if os.path.exists(path) and not QMessageBox.question(
+            #     self,
+            #     "File Exists",
+            #     f"The file {os.path.basename(path)} already exists. Do you want to overwrite it?",
+            #     QMessageBox.Yes | QMessageBox.No,
+            #     QMessageBox.No
+            # ) == QMessageBox.Yes:
+            #     return
+
             self.save_shot_list(path)
 
 
@@ -747,6 +784,8 @@ class ShotBoard(QMainWindow):
             
             elif event.type() == QEvent.KeyPress:
                 if event.key() == Qt.Key_Space:
+                    if self._hovered_shot_widget:
+                        self._hovered_shot_widget.stop_videoplayer()
                     self._play_button.click()  # Play / pause
                     return True  # Event handled
 
@@ -951,6 +990,7 @@ class ShotBoard(QMainWindow):
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_zoom_changed(self, value):
         self.update_grid_layout()
+        self._old_zoom_value = value
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -975,8 +1015,12 @@ class ShotBoard(QMainWindow):
         if not self._ui_enabled:
             return
         
-        if entering and self._mediaplayer.is_playing():
-            self.pause_video()
+        if entering:
+            self._hovered_shot_widget = shot_widget
+            if self._mediaplayer.is_playing():
+                self.pause_video()
+        else:
+            self._hovered_shot_widget = None
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1098,6 +1142,7 @@ class ShotBoard(QMainWindow):
         ShotWidget.thumbnail_manager.clear()
         ShotWidget.thumbnail_manager.set_video_info(self._video_info)
         self.update_ui_state()
+        self.update_status_bar()
         self.update_window_title()
         self.statusBar().showMessage("Load a video.")
 
@@ -1116,9 +1161,20 @@ class ShotBoard(QMainWindow):
         # Disable updates to prevent tons of repaints
         # self._scroll_area.setUpdatesEnabled(False)
 
+        # Width of the ScrollArea strictly dedicated to shot widgets (accounts for margins, scrollbar width and borders)
+        scroll_area_available_width = self._scroll_area.width() - (2 * SCROLL_AREA_BORDER) - (2 * GRID_LAYOUT_MARGIN) - SCROLL_AREA_VERT_SCROLLBAR_WIDTH
+
         num_img_per_row = self._zoom_spinbox.value()
-        widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
-        needs_resize_shot_widgets = (self._shot_widget_mgr.get_shot_widget_size() != widget_size) if len(self._shot_widget_mgr) > 0 else False
+        new_shot_widget_size = ShotWidget.evaluate_widget_size(num_img_per_row)
+        needs_resize_shot_widgets = (self._shot_widget_mgr.get_shot_widget_size() != new_shot_widget_size) if len(self._shot_widget_mgr) > 0 else False
+
+        # Store the index of the first shot widget entirely visible in the ScrollArea
+        if needs_resize_shot_widgets:
+            old_num_cols = self._old_zoom_value
+            old_shot_widget_size = ShotWidget.evaluate_widget_size(self._old_zoom_value)
+            old_scroll_pos = self._scroll_area.verticalScrollBar().value()
+            old_topleft_shot_widget_index = old_num_cols * math.ceil(max(0, (old_scroll_pos - GRID_LAYOUT_MARGIN + GRID_LAYOUT_SPACING)) / (old_shot_widget_size[1] + GRID_LAYOUT_SPACING))
+            # print(f"old_num_cols = {old_num_cols}   old_shot_widget_size = {old_shot_widget_size}   old_scroll_pos = {old_scroll_pos}   old_topleft_shot_widget_index = {old_topleft_shot_widget_index} -> displayed = {old_topleft_shot_widget_index + 1}")
 
         progress_dialog = None
         if len(self._db) > 0:
@@ -1137,9 +1193,10 @@ class ShotBoard(QMainWindow):
                 start_frame_index = self._db[j]
 
                 shot_widget.set_shot_number(i + 1)  # /!\ 1-based (not 0-based)
-
                 if needs_resize_shot_widgets:
                     shot_widget.resize(num_img_per_row)
+                else:
+                    shot_widget.update_progress_bar_format()
 
                 widget_start_frame_index = shot_widget.get_start_frame_index()
                 if widget_start_frame_index == start_frame_index:
@@ -1183,17 +1240,13 @@ class ShotBoard(QMainWindow):
                 progress_dialog = None
 
         # Update grid layout
-        left_margin, top_margin, right_margin, bottom_margin = self._grid_layout.getContentsMargins()
-        horz_spacing, vert_spacing = self._grid_layout.horizontalSpacing(), self._grid_layout.verticalSpacing()
-
-        available_width = self._scroll_area.width() - (left_margin + right_margin) - 2  # Size of the framing itself
-        cell_width = self._shot_widget_mgr[0].width() if len(self._shot_widget_mgr) > 0 else 128
-        num_cols = 1 + max(0, (available_width - cell_width) // (cell_width + horz_spacing))
+        new_shot_widget_size = self._shot_widget_mgr.get_shot_widget_size()
+        new_num_cols = (scroll_area_available_width + GRID_LAYOUT_SPACING) // (new_shot_widget_size[0] + GRID_LAYOUT_SPACING)
 
         # Add widgets to the grid layout in order
         for i, shot_widget in enumerate(self._shot_widget_mgr):
-            row = i // num_cols
-            col = i % num_cols
+            row = i // new_num_cols
+            col = i % new_num_cols
             self._grid_layout.addWidget(shot_widget, row, col, 1, 1)
 
         # Remove widgets from the grid layout that are no longer in _shot_widgets
@@ -1206,6 +1259,14 @@ class ShotBoard(QMainWindow):
             self._grid_layout.removeWidget(widget)
             widget.hide()
             widget.deleteLater()
+
+        # Scroll so that the first shot widget previously entirely visible in the ScrollArea is still part of the first row
+        if needs_resize_shot_widgets:
+            new_top_row = old_topleft_shot_widget_index // new_num_cols
+            new_scroll_pos = GRID_LAYOUT_MARGIN + new_top_row * (new_shot_widget_size[1] + GRID_LAYOUT_SPACING) - GRID_LAYOUT_SPACING
+            self._scroll_area.verticalScrollBar().setValue(new_scroll_pos)
+            # new_topleft_shot_widget_index = new_num_cols * new_top_row
+            # print(f"new_num_cols = {new_num_cols}   new_shot_widget_size = {new_shot_widget_size}   new_scroll_pos = {new_scroll_pos}   new_topleft_shot_widget_index = {new_topleft_shot_widget_index} -> displayed {new_topleft_shot_widget_index + 1}   new_top_row = {new_top_row}")
 
         # Re-enable updates and trigger a single repaint
         # self._scroll_area.setUpdatesEnabled(True)
@@ -1951,9 +2012,9 @@ class ShotBoard(QMainWindow):
         event.accept()
 
 
-    ##
-    ## MAIN
-    ##
+##
+## MAIN
+##
 
 
 if __name__ == '__main__':
