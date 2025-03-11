@@ -23,7 +23,18 @@ With **ShotBoard**, you can:
 With the "Lines" option checked:
 ![screenshot](./Example/Sobel.jpg)
 
-## Installation
+# Installation
+
+### 🎉 **NEW! Portable Windows Executable** 🎉
+
+For Windows users who don’t want to install Python and the required libraries, a **portable `.exe` file** is now available (~124 Mb)! 🚀
+
+📥 **Download the latest version from the [Releases page](https://github.com/madjyc/ShotBoard/releases/latest).** 📥
+
+This standalone executable is perfect for users who want to run the app without setting up a Python environment. Just download, double-click and go!
+
+### Prefer to Install from Source?
+If you'd rather install the app manually, follow the instructions below to set up FFmpeg, Python and the required libraries.  
 
 ### Install FFmpeg
 FFmpeg is required for video processing. Here's how to install it on Windows 10+:
@@ -141,7 +152,7 @@ To avoid overdetecting shots:
 2. Merge overdetected shots.
 3. Uncheck the **Stabilized** option and increase the similarity threshold to around 0.20, then re-scan the underdetected shots as you see fit.
 
-## Conclusion  
+# Conclusion  
 ShotBoard provides an intuitive way to analyze movies, study cinematic storytelling and explore editing techniques. Displaying shots as animated 'line drawings' can tremendously help studying storyboarding.
 
 We hope you enjoy using ShotBoard and find it helpful in your creative or analytical endeavors. If you have any feedback, suggestions, or run into issues, please don’t hesitate to reach out or contribute.
