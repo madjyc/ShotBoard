@@ -27,9 +27,9 @@ With the "Lines" option checked:
 
 ### 🎉 **NEW! Portable Windows Executable** 🎉
 
-For Windows users who don’t want to install Python and the required libraries, a **portable `.exe` file** is now available (~124 Mb)! 🚀
+For Windows users who don’t want to install Python and the required libraries, a **portable `.exe` file** is now available (~124 Mb)!
 
-📥 **Download the latest version from the [Releases page](https://github.com/madjyc/ShotBoard/releases/latest).** 📥
+📥 **Download the latest version from the [Releases page](https://github.com/madjyc/ShotBoard/releases/latest).**
 
 This standalone executable is perfect for users who want to run the app without setting up a Python environment. Just download, double-click and go!
 
