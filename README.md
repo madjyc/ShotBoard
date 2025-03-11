@@ -34,7 +34,7 @@ For Windows users who don’t want to install Python and the required libraries,
 This standalone executable is perfect for users who want to run the app without setting up a Python environment. Just download, double-click and go!
 
 ### Prefer to Install from Source?
-If you'd rather install the app manually, follow the instructions below to set up FFmpeg, Python and the required libraries.  
+If you'd rather install the app manually, follow the instructions below to set up FFmpeg, Python and the required libraries.
 
 ### Install FFmpeg
 FFmpeg is required for video processing. Here's how to install it on Windows 10+:
