@@ -55,6 +55,8 @@ BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
 # Timestamp in seconds vs milliseconds
 SLIDER_TIMESTAMP_MILLISECONDS = False
 
+DEFAULT_FFMPEG_FRAME_SEEK_OFFSET = -1  # Slight frame offset to prevent FFmpeg from rounding to nearest (previous) frame
+
 # Debug
 LOG_FUNCTION_NAMES = False
 PRINT_DEFAULT_COLOR = '\033[0m'
@@ -439,7 +441,7 @@ class ShotBoard(QMainWindow):
         self._skip_bwd_button.setStatusTip("Skip to pprevious shot.")
         button_layout.addWidget(self._skip_bwd_button)
 
-        # Create a skip forward button
+        # Create a skip foreward button
         self._skip_fwd_button = QToolButton()
         self._skip_fwd_button.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
         self._skip_fwd_button.clicked.connect(self.on_skip_fwd_clicked)
@@ -484,6 +486,17 @@ class ShotBoard(QMainWindow):
         self._plot_checkbox.setChecked(False)
         self._plot_checkbox.setStatusTip("Check to display a real-time plot of SSIM values during frame analysis. Close the graph when done.")
 
+        # Seek offset label (DEBUG ONLY: NOT DISPLAYED)
+        seek_offset_label = QLabel("Offset")
+        seek_offset_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        # Create an seek offset spinbox (DEBUG ONLY: NOT DISPLAYED)
+        self._seek_offset_spinbox = QSpinBox()
+        self._seek_offset_spinbox.setRange(-10, 10)
+        self._seek_offset_spinbox.setValue(DEFAULT_FFMPEG_FRAME_SEEK_OFFSET)
+        self._seek_offset_spinbox.valueChanged.connect(self.on_seek_offset_spinbox_changed)
+        self._seek_offset_spinbox.setStatusTip("Set a corrective offset (in 10th of a frame) to accurately seek shot start frames.")
+
         # Create a double condition checkbox with a label
         self._double_condition_checkbox = QCheckBox("Stabilized")  
         self._double_condition_checkbox.setChecked(True)
@@ -502,7 +515,7 @@ class ShotBoard(QMainWindow):
         self._detection_label = QLabel(f"{self.convert_detection_slider_value_to_ssim_drop_threshold(self._detection_slider.value()):.2f}")
         self._detection_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        # Create a downscale spinbox (NOT DISPLAYED, DEBUG ONLY)
+        # Create a downscale spinbox (DEBUG ONLY: NOT DISPLAYED)
         self._downscale_spinbox = QSpinBox()
         self._downscale_spinbox.setRange(64, 1280)
         self._downscale_spinbox.setSingleStep(64)
@@ -514,6 +527,8 @@ class ShotBoard(QMainWindow):
         detection_layout.addStretch()  # Add stretch to push elements to the right
         detection_layout.addWidget(self._scan_button)
         detection_layout.addWidget(self._plot_checkbox)
+        # detection_layout.addWidget(seek_offset_label)
+        # detection_layout.addWidget(self._seek_offset_spinbox)
         detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._detection_slider)
         detection_layout.addWidget(self._detection_label)
@@ -523,12 +538,28 @@ class ShotBoard(QMainWindow):
         button_layout.addStretch()
         button_layout.addLayout(detection_layout)
 
+        # Create a shift backward button
+        self._shift_backward_button = QPushButton('➕')
+        self._shift_backward_button.setFixedWidth(24)
+        self._shift_backward_button.clicked.connect(self.on_shift_backward_button_clicked)
+        # self._shift_backward_button.setStyleSheet(f"background-color: {SHOT_WIDGET_SELECT_COLOR};")
+        self._shift_backward_button.setStatusTip("Shift the start of the selected shot backward by one frame.")
+        button_layout.addStretch()
+        button_layout.addWidget(self._shift_backward_button)
+
+        # Create a shift foreward button
+        self._shift_foreward_button = QPushButton('➖')
+        self._shift_foreward_button.setFixedWidth(24)
+        self._shift_foreward_button.clicked.connect(self.on_shift_foreward_button_clicked)
+        # self._shift_foreward_button.setStyleSheet(f"background-color: {SHOT_WIDGET_SELECT_COLOR};")
+        self._shift_foreward_button.setStatusTip("Shift the start of the selected shot foreward by one frame.")
+        button_layout.addWidget(self._shift_foreward_button)
+
         # Create a merge button
         self._merge_button = QPushButton('Merge selected shots')
         self._merge_button.clicked.connect(self.on_merge_button_clicked)
         self._merge_button.setStyleSheet(f"background-color: {SHOT_WIDGET_SELECT_COLOR};")
         self._merge_button.setStatusTip("Merge the selected shots as one shot (in case they were incorrectly detected as separate shots).")
-        button_layout.addStretch()
         button_layout.addWidget(self._merge_button)
 
         # Create a DEBUG button
@@ -903,8 +934,23 @@ class ShotBoard(QMainWindow):
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_seek_offset_spinbox_changed(self, value):
+        self._video_info.seek_offset = value * 0.1
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
     def on_merge_button_clicked(self):
         self.cmd_merge_selected_shots()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_shift_backward_button_clicked(self):
+        self.cmd_shift_selected_shot_backward()
+
+
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def on_shift_foreward_button_clicked(self):
+        self.cmd_shift_selected_shot_foreward()
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1101,6 +1147,8 @@ class ShotBoard(QMainWindow):
         self._skip_fwd_button.setEnabled(enabled)
         self._split_button.setEnabled(enabled)
         self._scan_button.setEnabled(enabled and not self.is_selection_empty())
+        self._shift_backward_button.setEnabled(enabled and not self.is_selection_empty())
+        self._shift_foreward_button.setEnabled(enabled and not self.is_selection_empty())
         self._merge_button.setEnabled(enabled and not self.is_selection_empty())
         self._zoom_spinbox.setEnabled(enabled)
         #self._detection_slider.setEnabled(enabled and not self.is_selection_empty())
@@ -1298,6 +1346,7 @@ class ShotBoard(QMainWindow):
         cap.release()
 
         self._video_info.set_info(video_path, fps, frame_width, frame_height, frame_count)
+        self._video_info.seek_offset = self._seek_offset_spinbox.value() * 0.1
         
         self._mediaplayer.set_video_info(self._video_info)
         self._shot_widget_mgr.set_video_info(self._video_info)
@@ -1411,7 +1460,7 @@ class ShotBoard(QMainWindow):
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        START_POS = max(0, (start_frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (start_frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
@@ -1561,6 +1610,8 @@ class ShotBoard(QMainWindow):
         if len(self._shot_widget_mgr) == 0:
             return
 
+        self.pause_video()
+
         if self._selection_first_index == self._selection_last_index:
             return
 
@@ -1584,6 +1635,76 @@ class ShotBoard(QMainWindow):
         self.enable_ui(True)
 
         return shot_widget_min
+
+
+    # DEBUG
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def shift_selected_shot_backward(self):
+        if len(self._shot_widget_mgr) == 0:
+            return
+
+        self.pause_video()
+
+        if self._selection_first_index != self._selection_last_index or self._selection_first_index == 0:
+            return
+
+        curr_shot_index = self._selection_first_index
+        prev_shot_index = self._selection_first_index - 1
+
+        curr_shot_widget = self._shot_widget_mgr[curr_shot_index]
+        prev_shot_widget = self._shot_widget_mgr[prev_shot_index]
+
+        curr_start_frame_index = curr_shot_widget.get_start_frame_index()
+        new_start_frame_index = curr_start_frame_index - 1
+        if prev_shot_widget.get_start_frame_index() >= new_start_frame_index:
+            return
+
+        self.enable_ui(False)
+
+        self._db[curr_shot_index] = new_start_frame_index
+        self._shot_widget_mgr.offset_start_frame_index(curr_start_frame_index, -1)
+        prev_shot_widget.initialise_thumbnail()
+
+        # Update the grid layout
+        self.update_grid_layout()
+
+        self.seek_video(new_start_frame_index)
+        self.enable_ui(True)
+
+        return True
+
+
+    # DEBUG
+    @log_function_name(color=PRINT_GREEN_COLOR)
+    def shift_selected_shot_foreward(self):
+        if len(self._shot_widget_mgr) == 0:
+            return
+
+        self.pause_video()
+
+        if self._selection_first_index != self._selection_last_index:
+            return
+
+        curr_shot_index = self._selection_first_index
+        curr_shot_widget = self._shot_widget_mgr[curr_shot_index]
+
+        curr_start_frame_index = curr_shot_widget.get_start_frame_index()
+        new_start_frame_index = curr_start_frame_index + 1
+        if new_start_frame_index >= curr_shot_widget.get_end_frame_index() - 1:
+            return
+
+        self.enable_ui(False)
+
+        self._db[curr_shot_index] = new_start_frame_index
+        self._shot_widget_mgr.offset_start_frame_index(curr_start_frame_index, 1)
+
+        # Update the grid layout
+        self.update_grid_layout()
+
+        self.seek_video(new_start_frame_index)
+        self.enable_ui(True)
+
+        return True
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1618,7 +1739,7 @@ class ShotBoard(QMainWindow):
         shot_widget_min, shot_widget_max = self._shot_widget_mgr[shot_index_min], self._shot_widget_mgr[shot_index_max]
         start_frame_index, end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
 
-        START_POS = max(0, (start_frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (start_frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1687,7 +1808,7 @@ class ShotBoard(QMainWindow):
         self.pause_video()
 
         # Calculate timestamp in seconds
-        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
 
         if ask_for_path:
             save_path, _ = QFileDialog.getSaveFileName(
@@ -1810,6 +1931,16 @@ class ShotBoard(QMainWindow):
     @command_full_context
     def cmd_merge_selected_shots(self):
         return self.merge_selected_shots()
+
+
+    @command_full_context
+    def cmd_shift_selected_shot_backward(self):
+        return self.shift_selected_shot_backward()
+
+
+    @command_full_context
+    def cmd_shift_selected_shot_foreward(self):
+        return self.shift_selected_shot_foreward()
 
 
     ##

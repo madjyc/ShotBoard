@@ -42,7 +42,7 @@ SHOT_WIDGET_MARGIN = 4
 SHOT_IMAGE_SIZES = {}
 SHOT_IMAGE_SIZES_MIN = 4
 SHOT_IMAGE_SIZES_MAX = 10
-DEFAULT_SHOT_IMAGE_SIZE_INDEX = 6
+DEFAULT_SHOT_IMAGE_SIZE_INDEX = 5
 assert SHOT_IMAGE_SIZES_MAX >= SHOT_IMAGE_SIZES_MIN
 for i in range(SHOT_IMAGE_SIZES_MIN, SHOT_IMAGE_SIZES_MAX + 1):
     TOTAL_TARGET_WIDTH = 1866  # scrollarea_width - SCROLL_AREA_VERT_SCROLLBAR_WIDTH - (2 * GRID_LAYOUT_MARGIN) - (2 * SCROLL_AREA_BORDER)
@@ -85,7 +85,7 @@ class ThumbnailLoader(QRunnable):
 
     def run(self):
         """ Simulate loading an image by creating a black QPixmap """
-        START_POS = max(0, (self._frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (self._frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
 
         with QMutexLocker(ThumbnailLoader.ffmpeg_mutex):
             # Run FFmpeg without showing a console window
@@ -380,7 +380,7 @@ class ShotWidget(QFrame):
         self._is_selected = False
 
         # Calculate shot timestamp
-        self._duration_msf = self.format_duration(self._start_frame_index, self._end_frame_index, self._video_info.fps)
+        self.update_duration()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN, SHOT_WIDGET_MARGIN)
@@ -477,11 +477,21 @@ class ShotWidget(QFrame):
         return self._end_frame_index
 
 
+    def set_start_frame_index(self, start_frame_index, reset_thumbnail):
+        assert start_frame_index < self._end_frame_index
+        self._start_frame_index = start_frame_index
+        self._frame_progress_bar.setMinimum(start_frame_index)
+        self.update_duration()
+        self.update_progress_bar(self._start_frame_index)
+        if reset_thumbnail:
+            self.initialise_thumbnail(True)
+
+
     def set_end_frame_index(self, end_frame_index, reset_thumbnail):
         assert end_frame_index > self._start_frame_index
         self._end_frame_index = end_frame_index
         self._frame_progress_bar.setMaximum(end_frame_index - 1)
-        self._duration_msf = self.format_duration(self._start_frame_index, self._end_frame_index, self._video_info.fps)
+        self.update_duration()
         self.update_progress_bar(self._start_frame_index)
         if reset_thumbnail:
             self.initialise_thumbnail(True)
@@ -578,6 +588,10 @@ class ShotWidget(QFrame):
         self._image_label.update()  # IS THIS REALLY NECESSARY?
         self._thumbnail_loaded = True
         self.update_progress_bar(frame_index)
+
+
+    def update_duration(self):
+        self._duration_msf = self.format_duration(self._start_frame_index, self._end_frame_index, self._video_info.fps)
 
 
     def update_progress_bar(self, frame_index):
@@ -831,6 +845,25 @@ class ShotWidgetManager(QObject):
         self._bridge_previous_shot_widget(index)
 
 
+    def offset_start_frame_index(self, start_frame_index, offset):
+        """
+        Offset start_frame_index by one frame backward.
+        """
+        index = self.index_by_start_frame_index(start_frame_index)
+
+        # Remove the ShotWidget from the dictionary
+        shot_widget = self._shot_widgets.pop(start_frame_index)
+        if start_frame_index in self._start_frame_indexes:
+            self._start_frame_indexes.remove(start_frame_index)
+
+        # Adjust the ShotWidget's start frame index and add it back
+        shot_widget.set_start_frame_index(start_frame_index + offset, True)
+        self.add(shot_widget)
+
+        # Keep the shot widget chain consistent
+        self._bridge_previous_shot_widget(index)
+
+
     # Keep the shot widget chain consistent
     def _bridge_previous_shot_widget(self, index):
         if index > 0:
@@ -848,7 +881,7 @@ class ShotWidgetManager(QObject):
     def on_thumbnail_loaded(self, start_frame_index, pixmap):
         """Set the thumbnail loaded by ThumbnailManager."""
         shot_widget = self.get_by_start_frame_index(start_frame_index)
-        if shot_widget:
+        if shot_widget and not shot_widget._videoplayer:
             shot_widget.update_frame(start_frame_index, pixmap)
             self.thumbnail_loaded.emit(shot_widget)
 

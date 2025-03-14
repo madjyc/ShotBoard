@@ -90,6 +90,11 @@ class ShotBoardDb:
 
     def __getitem__(self, shot_index):
         return self._shots[shot_index]
+    
+
+    def __setitem__(self, shot_index, start_frame):
+        self._shots[shot_index] = start_frame
+        self._is_dirty = True
 
 
     # Example usage: del db[shot_index]

@@ -9,8 +9,6 @@ from PyQt5.QtCore import QThread, pyqtSignal, QElapsedTimer, QMutex, QMutexLocke
 from PyQt5.QtGui import QImage
 
 
-FFMPEG_FRAME_SEEK_OFFSET = 0.1  # Slight offset to prevent FFmpeg from rounding to nearest (previous) frame
-
 # Platform-specific settings
 FFMPEG_NOWINDOW_KWARGS = {}
 if sys.platform == "win32":
@@ -40,6 +38,7 @@ class VideoInfo():
         self.frame_height = frame_height
         self.frame_count = frame_count
         self.duration = self.frame_count / self.fps if self.fps > 0 else 0  # in seconds
+        self.seek_offset = 0.0  # in frames
 
 
     def clear_info(self):
@@ -246,7 +245,7 @@ class VideoPlayer(QThread):
             return
 
         assert self._video_info.fps > 0
-        START_POS = max(0, (self._start_frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (self._start_frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
         FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
 
         # Start video process (only video)

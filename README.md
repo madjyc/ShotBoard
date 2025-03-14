@@ -1,8 +1,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Godot Version](https://img.shields.io/badge/Python-3.10.6-orange.svg)
-![Version](https://img.shields.io/badge/version-v0.9.3-blue.svg)
+![Version](https://img.shields.io/badge/version-v0.9.4-blue.svg)
 
-# ShotBoard v0.9.3
+# ShotBoard v0.9.4
 For **Windows** 10+ and **Linux** (not sure about **Mac**, feel free to try).
 
 ### ShotBoard: Visualize movies shot by shot
@@ -151,6 +151,7 @@ To avoid overdetecting shots:
 1. Start by scanning at a similarity threshold around 0.20 with the **Stabilized** option checked, then refine unsplit shots at around 0.10. If some still need more slack, uncheck the **Stabilized** option.
 2. Merge overdetected shots.
 3. Uncheck the **Stabilized** option and increase the similarity threshold to around 0.20, then re-scan the underdetected shots as you see fit.
+4. If a shot was detected as starting one frame later than it should, select it and click on the <kbd>+</kbd> button to shift its beginning by one frame backward. Click <kbd>-</kbd> to do the opposite.
 
 # Conclusion  
 ShotBoard provides an intuitive way to analyze movies, study cinematic storytelling and explore editing techniques. Displaying shots as animated 'line drawings' can tremendously help studying storyboarding.

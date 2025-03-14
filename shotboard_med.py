@@ -202,7 +202,7 @@ class SBMediaPlayer(QLabel):
             self._videoplayer.stop()
             self._videoplayer = None
 
-        START_POS = max(0, (frame_index - FFMPEG_FRAME_SEEK_OFFSET) / self._video_info.fps)  # frame position in seconds
+        START_POS = max(0, (frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
 
         # Run FFmpeg without showing a console window
         if SBMediaPlayer.detect_edges:
