@@ -148,7 +148,7 @@ Although ShotBoard will successfully detect most of the shots, it may struggle w
 - The lighting is stroboscopic (e.g. lightning, flashing lights)
 - Images are choppy or shaking (e.g. faked slow motion in post)
 To avoid overdetecting shots:
-1. Start by scanning at a similarity threshold around 0.10 with the **Stabilized** option checked.
+1. Start by scanning at a similarity threshold around 0.20 with the **Stabilized** option checked, then refine unsplit shots at around 0.10. If some still need more slack, uncheck the **Stabilized** option.
 2. Merge overdetected shots.
 3. Uncheck the **Stabilized** option and increase the similarity threshold to around 0.20, then re-scan the underdetected shots as you see fit.
 
