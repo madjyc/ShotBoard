@@ -534,11 +534,14 @@ class ShotWidget(QFrame):
 
 
     def on_image_label_enter(self):
+        self.stop_videoplayer()
         self._cursor_timer.start()  # Start tracking inactivity
+
         self._videoplayer = VideoPlayer(self._video_info, self._start_frame_index, self._end_frame_index, ShotWidget.volume, ShotWidget.speed, ShotWidget.detect_edges, ShotWidget.edge_factor)
         if self._videoplayer:
             self._videoplayer.frame_loaded.connect(self.on_frame_loaded)
             self._videoplayer.start()  # Start the video rendering thread
+
         self.hovered.emit(True)
 
 

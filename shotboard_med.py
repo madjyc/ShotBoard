@@ -241,7 +241,7 @@ class SBMediaPlayer(QLabel):
         out, err = process.communicate()
         if process.returncode != 0:
             print("Error: Cannot extract frame with FFmpeg.")
-            print(err.decode())
+            # print(err.decode())
             return
 
         # Load the extracted frame using QImage

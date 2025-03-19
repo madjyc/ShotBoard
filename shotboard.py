@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.3"
+APP_VERSION = "0.9.5"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -56,6 +56,8 @@ BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
 SLIDER_TIMESTAMP_MILLISECONDS = False
 
 DEFAULT_FFMPEG_FRAME_SEEK_OFFSET = -1  # Slight frame offset to prevent FFmpeg from rounding to nearest (previous) frame
+
+ENABLE_SEEK_OFFSET_SPINBOX = False
 
 # Debug
 LOG_FUNCTION_NAMES = False
@@ -527,8 +529,9 @@ class ShotBoard(QMainWindow):
         detection_layout.addStretch()  # Add stretch to push elements to the right
         detection_layout.addWidget(self._scan_button)
         detection_layout.addWidget(self._plot_checkbox)
-        # detection_layout.addWidget(seek_offset_label)
-        # detection_layout.addWidget(self._seek_offset_spinbox)
+        if ENABLE_SEEK_OFFSET_SPINBOX:
+            detection_layout.addWidget(seek_offset_label)
+            detection_layout.addWidget(self._seek_offset_spinbox)
         detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._detection_slider)
         detection_layout.addWidget(self._detection_label)
