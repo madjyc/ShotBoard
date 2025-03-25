@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.5"
+APP_VERSION = "0.9.6"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -2104,11 +2104,12 @@ class ShotBoard(QMainWindow):
         return (SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN) * (value / DETECTION_SLIDER_STEPS) + SIM_DROP_THRESHOLD_MIN
 
 
-    def make_export_path(self, START_POS, extension):
+    def make_export_path(self, start_pos, extension):
         # Extract filename and remove extension
         filename, _ = os.path.splitext(os.path.basename(self._video_info.video_path))  # Split the extension
         title = filename.replace(" ", "")  # Remove spaces
-        timestamp = f"{int(START_POS // 3600):02}{int((START_POS % 3600) // 60):02}{int(START_POS % 60):02}"
+        # timestamp = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}.{int((start_pos % 1) * 1000):03}"
+        timestamp = f"{int(start_pos // 3600):02}{int((start_pos % 3600) // 60):02}{int(start_pos % 60):02}+{int((start_pos % 1) * self._video_info.fps):02}"
 
         # Split title and year, assuming the format "Title (Year)"
         if "(" in title and title.endswith(")"):
