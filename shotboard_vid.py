@@ -1,3 +1,4 @@
+import ffmpeg
 import subprocess
 import numpy as np
 import pyaudio
@@ -27,27 +28,49 @@ MAX_VOLUME_FACTOR = 2.0
 
 
 class VideoInfo():
-    def __init__(self, video_path=None, fps=0, frame_width=0, frame_height=0, frame_count=0):
-        self.set_info(video_path, fps, frame_width, frame_height, frame_count)
-
-
-    def set_info(self, video_path, fps, frame_width, frame_height, frame_count):
-        self.video_path = video_path
-        self.fps = fps
-        self.frame_width = frame_width
-        self.frame_height = frame_height
-        self.frame_count = frame_count
-        self.duration = self.frame_count / self.fps if self.fps > 0 else 0  # in seconds
-        self.seek_offset = 0.0  # in frames
+    def __init__(self):
+        self.clear_info()
 
 
     def clear_info(self):
         self.video_path = None
-        self.fps = 0
         self.frame_width = 0
         self.frame_height = 0
+        self.display_width = 0
+        self.fps = 0
         self.frame_count = 0
         self.duration = 0
+        self.seek_offset = 0.0  # in frames
+
+
+    def set_from_video(self, video_path, seek_offset = 0.0):
+        probe = ffmpeg.probe(video_path)
+        video_info = next(stream for stream in probe['streams'] if stream['codec_type'] == 'video')
+        
+        frame_width = int(video_info['width'])
+        frame_height = int(video_info['height'])
+        fps = eval(video_info.get('r_frame_rate', '0'))
+
+        duration = float(probe['format'].get('duration', 0))  # in seconds
+        frame_count = video_info.get('nb_frames')
+        if frame_count is None or frame_count == "0":
+            frame_count = int(fps * duration) if fps > 0 and duration > 0 else 0
+        else:
+            frame_count = int(frame_count)
+
+        # Get PAR (Pixel Aspect Ratio), default to "1:1" if missing
+        par_str = video_info.get('sample_aspect_ratio', '1:1')
+        par_w, par_h = map(int, par_str.split(':'))
+        display_width = int(frame_width * (par_w / par_h))
+
+        self.video_path = video_path
+        self.frame_width = frame_width
+        self.frame_height = frame_height
+        self.display_width = display_width
+        self.fps = fps
+        self.frame_count = frame_count
+        self.duration = duration
+        self.seek_offset = seek_offset
 
 
 #
@@ -222,7 +245,7 @@ class VideoPlayer(QThread):
         self._audio_thread = None  # Store reference to audio thread
 
         self._video_info = video_info
-        self._frame_size = (video_info.frame_height, video_info.frame_width, 3)
+        self._frame_size = (video_info.frame_height, video_info.display_width, 3)
         self._start_frame_index = start_frame_index
         self._end_frame_index = end_frame_index
         self.set_volume(volume)  # Ensure valid range
@@ -246,7 +269,7 @@ class VideoPlayer(QThread):
 
         assert self._video_info.fps > 0
         START_POS = max(0, (self._start_frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
-        FRAME_BYTES = np.prod(self._frame_size)  # w * h *ch
+        FRAME_BYTES = np.prod(self._frame_size)  # shortcut for: w * h *ch
 
         # Start video process (only video)
         with QMutexLocker(self._process_mutex):  # 🔒
@@ -262,7 +285,8 @@ class VideoPlayer(QThread):
                 "-ss", str(START_POS),  # Fast seek FIRST
                 "-i", self._video_info.video_path,  # Input file AFTER
                 "-vframes", str(self._end_frame_index - self._start_frame_index),  # Number of frames to process
-                "-vf", f"format=gray, sobel=scale={self._edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                # "-vf", f"format=gray, sobel=scale={self._edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                "-vf", f"scale=iw*sar:ih,setsar=1,format=gray, sobel=scale={self._edge_factor}, negate",  # Correct pixel aspect ratio (PAR), grayscale, Sobel, invert colors
                 "-f", "rawvideo",  # Output format
                 "-pix_fmt", "rgb24",  # Pixel format
                 "-nostdin",  # Disable interaction on standard input
@@ -275,6 +299,7 @@ class VideoPlayer(QThread):
                 "-ss", str(START_POS),  # Fast seek FIRST
                 "-i", self._video_info.video_path,  # Input file AFTER
                 "-vframes", str(self._end_frame_index - self._start_frame_index),  # Number of frames to process
+                "-vf", "scale=iw*sar:ih,setsar=1",  # Correct pixel aspect ratio (PAR) before output
                 "-f", "rawvideo",  # Output format
                 "-pix_fmt", "rgb24",  # Pixel format
                 "-nostdin",  # Disable interaction on standard input

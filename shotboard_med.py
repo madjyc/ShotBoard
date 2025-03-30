@@ -11,7 +11,7 @@ from PyQt5.QtGui import QImage, QPixmap
 
 
 # Image dimension for storage
-VIDEO_SIZE_MIN = (296, 167) # h = w * 0.5625
+VIDEO_SIZE_MIN = (296, 167) # h = w / (16/9)
 
 
 ##
@@ -212,7 +212,8 @@ class SBMediaPlayer(QLabel):
                 "-ss", str(START_POS),  # Fast seek FIRST
                 "-i", self._video_info.video_path,  # Input file AFTER
                 "-vframes", "1",  # Number of frames to process
-                "-vf", f"format=gray, sobel=scale={SBMediaPlayer.edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                # "-vf", f"format=gray, sobel=scale={SBMediaPlayer.edge_factor}, negate",  # Convert to grayscale, apply Sobel filter, and invert colors
+                "-vf", f"scale=iw*sar:ih,setsar=1,format=gray, sobel=scale={SBMediaPlayer.edge_factor}, negate",  # Correct pixel aspect ratio (PAR), grayscale, Sobel, invert colors
                 "-f", "image2",  # Output format
                 "-vcodec", "mjpeg",  # Video codec
                 "-nostdin",  # Disable interaction on standard input
@@ -225,6 +226,7 @@ class SBMediaPlayer(QLabel):
                 "-ss", str(START_POS),  # Fast seek FIRST
                 "-i", self._video_info.video_path,  # Input file AFTER
                 "-vframes", "1",  # Number of frames to process
+                "-vf", "scale=iw*sar:ih,setsar=1",  # Correct pixel aspect ratio (PAR) before output
                 "-f", "image2",  # Output format
                 "-vcodec", "mjpeg",  # Video codec
                 "-nostdin",  # Disable interaction on standard input

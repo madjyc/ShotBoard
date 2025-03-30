@@ -95,6 +95,7 @@ class ThumbnailLoader(QRunnable):
                 "-ss", str(START_POS),  # Fast seek FIRST
                 "-i", self._video_info.video_path,  # Input file AFTER
                 "-vframes", "1",  # Number of frames to process
+                "-vf", "scale=iw*sar:ih,setsar=1",  # Correct pixel aspect ratio (PAR) before output
                 "-f", "image2",  # Output format
                 "-vcodec", "mjpeg",  # Video codec
                 "-nostdin",  # Disable interaction on standard input

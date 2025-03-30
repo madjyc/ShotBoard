@@ -15,7 +15,6 @@ from shotboard_cmd import *
 from shotboard_med import *
 
 import subprocess
-import cv2
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
@@ -33,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.6"
+APP_VERSION = "0.9.7"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -58,6 +57,7 @@ SLIDER_TIMESTAMP_MILLISECONDS = False
 DEFAULT_FFMPEG_FRAME_SEEK_OFFSET = -1  # Slight frame offset to prevent FFmpeg from rounding to nearest (previous) frame
 
 ENABLE_SEEK_OFFSET_SPINBOX = False
+ENABLE_DOWNSCALE_SPINBOX = False
 
 # Debug
 LOG_FUNCTION_NAMES = False
@@ -535,7 +535,8 @@ class ShotBoard(QMainWindow):
         detection_layout.addWidget(self._double_condition_checkbox)
         detection_layout.addWidget(self._detection_slider)
         detection_layout.addWidget(self._detection_label)
-        # detection_layout.addWidget(self._downscale_spinbox)
+        if ENABLE_DOWNSCALE_SPINBOX:
+            detection_layout.addWidget(self._downscale_spinbox)
         detection_layout.setSpacing(5)  # Adjust spacing between label and slider
 
         button_layout.addStretch()
@@ -1119,7 +1120,7 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_status_bar(self):
-        ratio = self._video_info.frame_width / self._video_info.frame_height if self._video_info.frame_height > 0 else 0
+        ratio = self._video_info.display_width / self._video_info.frame_height if self._video_info.frame_height > 0 else 0
         duration_hms = str(datetime.timedelta(seconds=int(self._video_info.duration)))
         duration_h = self._video_info.duration / 3600 if self._video_info.duration > 0 else 1  # Prevent division by zero
         shots_per_hour = round(len(self._db) / duration_h)
@@ -1127,7 +1128,7 @@ class ShotBoard(QMainWindow):
         self._info_label.setText(
             f"𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {duration_hms}   "
             f"𝗙𝗣𝗦 {self._video_info.fps:.3f}   "
-            f"𝗥𝗲𝘀𝗼𝗹𝘂𝘁𝗶𝗼𝗻 {self._video_info.frame_width}x{self._video_info.frame_height} ({ratio:.2f})   "
+            f"𝗥𝗲𝘀𝗼𝗹𝘂𝘁𝗶𝗼𝗻 {self._video_info.display_width}x{self._video_info.frame_height} ({ratio:.2f})   "
             f"𝗦𝗵𝗼𝘁𝘀 {len(self._db)} (avg. {shots_per_hour} shots/hour)"
         )
 
@@ -1341,25 +1342,18 @@ class ShotBoard(QMainWindow):
         self.enable_ui(False)
 
         video_path = url.toLocalFile()
-        cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        cap.release()
-
-        self._video_info.set_info(video_path, fps, frame_width, frame_height, frame_count)
-        self._video_info.seek_offset = self._seek_offset_spinbox.value() * 0.1
+        seek_offset = self._seek_offset_spinbox.value() * 0.1
+        self._video_info.set_from_video(video_path, seek_offset)
         
         self._mediaplayer.set_video_info(self._video_info)
         self._shot_widget_mgr.set_video_info(self._video_info)
 
         self.on_volume_slider_moved(self._volume_slider.value())
 
-        self._seek_slider.setRange(0, frame_count - 1)
-        self._seek_spinbox.setRange(0, frame_count - 1)
+        self._seek_slider.setRange(0, self._video_info.frame_count - 1)
+        self._seek_spinbox.setRange(0, self._video_info.frame_count - 1)
 
-        self._db.set_frame_count(frame_count)
+        self._db.set_frame_count(self._video_info.frame_count)
         self._db.add_shot(0)  # Add a single shot covering the whole video
 
         self.update_window_title()
@@ -1459,11 +1453,15 @@ class ShotBoard(QMainWindow):
 
         # Define target width and compute target height while maintaining aspect ratio
         TARGET_WIDTH = self._downscale_spinbox.value()
-        TARGET_HEIGHT = round(self._video_info.frame_height * (TARGET_WIDTH / self._video_info.frame_width))
+        TARGET_HEIGHT = round(self._video_info.frame_height * (TARGET_WIDTH / self._video_info.frame_width)) #  don't bother using pixel aspect ratio for detection
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        START_POS = max(0, (start_frame_index + self._video_info.seek_offset) / self._video_info.fps)  # frame position in seconds
+        if start_frame_index == 0 and self._video_info.seek_offset < 0:
+            offset_start_frame_index = 1 + self._video_info.seek_offset  # skip frame 0 to actually use negative seek_offset
+        else:
+            offset_start_frame_index = start_frame_index + self._video_info.seek_offset
+        START_POS = offset_start_frame_index / self._video_info.fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
         ffmpeg_cmd = [
@@ -1472,7 +1470,7 @@ class ShotBoard(QMainWindow):
             "-ss", str(START_POS),  # Fast seek FIRST
             "-i", self._video_info.video_path,  # Input file AFTER
             "-vframes", str(end_frame_index - start_frame_index),
-            "-vf", f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}, format=gray",  # Scale and convert to grayscale
+            "-vf", f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}, format=gray",  # Scale and convert to grayscale (don't bother using pixel aspect ratio)
             "-f", "rawvideo",
             "-pix_fmt", "gray",
             "-nostdin",
@@ -1851,6 +1849,7 @@ class ShotBoard(QMainWindow):
             "-frames:v", "1",  # Export only one frame
             "-q:v", "2",  # High quality (lower = better quality, range: 2-31)
             "-update", "1",  # Ensure single image update (for PNG/JPEG output)
+            "-vf", "scale=iw*sar:ih,setsar=1",  # Correct pixel aspect ratio (PAR) before saving
             save_path  # Output file
         ]
 
