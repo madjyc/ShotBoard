@@ -26,13 +26,13 @@ from functools import wraps
 from inspect import signature
 from PyQt5.QtCore import Qt, pyqtSignal, QRect, QTime, QElapsedTimer
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox, QDialog, QFileDialog, QProgressDialog
-from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea, QSlider, QSpinBox
-from PyQt5.QtWidgets import QLabel, QPushButton, QToolButton, QCheckBox
+from PyQt5.QtWidgets import QSplitter, QHBoxLayout, QVBoxLayout, QGridLayout, QScrollArea
+from PyQt5.QtWidgets import QLabel, QPushButton, QToolButton, QCheckBox, QSlider, QSpinBox, QDoubleSpinBox
 from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.7"
+APP_VERSION = "0.9.8"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -54,9 +54,9 @@ BOARD_BACKGROUND_COLOR = "#2e2e2e"  # Dark gray
 # Timestamp in seconds vs milliseconds
 SLIDER_TIMESTAMP_MILLISECONDS = False
 
-DEFAULT_FFMPEG_FRAME_SEEK_OFFSET = -1  # Slight frame offset to prevent FFmpeg from rounding to nearest (previous) frame
+DEFAULT_FFMPEG_FRAME_SEEK_OFFSET = -0.5  # Slight frame offset (in frame) to prevent FFmpeg from rounding to nearest (previous) frame
 
-ENABLE_SEEK_OFFSET_SPINBOX = False
+ENABLE_SEEK_OFFSET_SPINBOX = True
 ENABLE_DOWNSCALE_SPINBOX = False
 
 # Debug
@@ -492,12 +492,14 @@ class ShotBoard(QMainWindow):
         seek_offset_label = QLabel("Offset")
         seek_offset_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        # Create an seek offset spinbox (DEBUG ONLY: NOT DISPLAYED)
-        self._seek_offset_spinbox = QSpinBox()
-        self._seek_offset_spinbox.setRange(-10, 10)
-        self._seek_offset_spinbox.setValue(DEFAULT_FFMPEG_FRAME_SEEK_OFFSET)
+        # Create an seek offset spinbox
+        self._seek_offset_spinbox = QDoubleSpinBox()
+        self._seek_offset_spinbox.setRange(-1.0, 1.0)  # In frame fractions
+        self._seek_offset_spinbox.setSingleStep(0.1)   # Adjustable in 0.1 increments
+        self._seek_offset_spinbox.setValue(DEFAULT_FFMPEG_FRAME_SEEK_OFFSET)  # Default is -0.5 (i.e. half a frame before actual frame time)
+        self._seek_offset_spinbox.setDecimals(1)  # Display one decimal place
         self._seek_offset_spinbox.valueChanged.connect(self.on_seek_offset_spinbox_changed)
-        self._seek_offset_spinbox.setStatusTip("Set a corrective offset (in 10th of a frame) to accurately seek shot start frames.")
+        self._seek_offset_spinbox.setStatusTip("Adjust the timing offset (in frames) to improve the accuracy of seeking shot start frames. The default value is -5, meaning the seek position is shifted slightly earlier — by half a frame — to ensure more precise positioning.")
 
         # Create a double condition checkbox with a label
         self._double_condition_checkbox = QCheckBox("Stabilized")  
@@ -939,7 +941,7 @@ class ShotBoard(QMainWindow):
 
     @log_function_name(color=PRINT_GREEN_COLOR)
     def on_seek_offset_spinbox_changed(self, value):
-        self._video_info.seek_offset = value * 0.1
+        self._video_info.seek_offset = value
 
 
     @log_function_name(color=PRINT_GREEN_COLOR)
@@ -1127,7 +1129,7 @@ class ShotBoard(QMainWindow):
 
         self._info_label.setText(
             f"𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {duration_hms}   "
-            f"𝗙𝗣𝗦 {self._video_info.fps:.3f}   "
+            f"𝗙𝗣𝗦 {self._video_info.fps}   "
             f"𝗥𝗲𝘀𝗼𝗹𝘂𝘁𝗶𝗼𝗻 {self._video_info.display_width}x{self._video_info.frame_height} ({ratio:.2f})   "
             f"𝗦𝗵𝗼𝘁𝘀 {len(self._db)} (avg. {shots_per_hour} shots/hour)"
         )
@@ -1342,7 +1344,7 @@ class ShotBoard(QMainWindow):
         self.enable_ui(False)
 
         video_path = url.toLocalFile()
-        seek_offset = self._seek_offset_spinbox.value() * 0.1
+        seek_offset = self._seek_offset_spinbox.value()
         self._video_info.set_from_video(video_path, seek_offset)
         
         self._mediaplayer.set_video_info(self._video_info)
@@ -1457,10 +1459,9 @@ class ShotBoard(QMainWindow):
         FRAME_SIZE = TARGET_WIDTH * TARGET_HEIGHT
 
         # Convert frame index to timestamp (in seconds) for FFmpeg seeking
-        if start_frame_index == 0 and self._video_info.seek_offset < 0:
-            offset_start_frame_index = 1 + self._video_info.seek_offset  # skip frame 0 to actually use negative seek_offset
-        else:
-            offset_start_frame_index = start_frame_index + self._video_info.seek_offset
+        offset_start_frame_index = start_frame_index + self._video_info.seek_offset
+        if offset_start_frame_index < 0:
+            offset_start_frame_index += 1  # skip frame 0 to actually use negative seek_offset
         START_POS = offset_start_frame_index / self._video_info.fps  # frame position in seconds
 
         # FFmpeg command to extract frames as grayscale
@@ -1494,6 +1495,8 @@ class ShotBoard(QMainWindow):
         progress_dialog.setValue(start_frame_index)
 
         frame_index = start_frame_index
+        if offset_start_frame_index < 0:
+            frame_index += 1
         prev_frame = None
         prev_ssim = None  # Stores SSIM of the previous frame
         prev_prev_ssim = None  # Stores SSIM of the frame before the previous one
