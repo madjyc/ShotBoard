@@ -39,7 +39,7 @@ class VideoInfo():
         self.display_width = 0
         self.fps = 0
         self.frame_count = 0
-        self.duration = 0
+        self.duration = 0  # in seconds
         self.seek_offset = 0.0  # in frames
 
 

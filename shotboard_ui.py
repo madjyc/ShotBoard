@@ -623,7 +623,6 @@ class ShotWidget(QFrame):
 ##
 
 
-# /!\ UNUSED
 class ShotWidgetManager(QObject):
     """
     A class that manages a dictionary of ShotWidget instances, referenced by start_frame_index.

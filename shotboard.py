@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QAction, QStyle
 from PyQt5.QtGui import QKeySequence, QColor, QPalette
 
 
-APP_VERSION = "0.9.8"
+APP_VERSION = "0.9.9"
 
 # Main UI
 DEFAULT_GEOMETRY = QRect(0, 0, 1280, 720)
@@ -41,7 +41,7 @@ DEFAULT_TITLE = "𝗦𝗵𝗼𝘁𝗯𝗼𝗮𝗿𝗱"
 # SSIM shot detection
 SIM_DROP_THRESHOLD_MIN = 0.05
 SIM_DROP_THRESHOLD_MAX = 0.30
-SIM_DROP_THRESHOLD_DEFAULT = 0.10
+SIM_DROP_THRESHOLD_DEFAULT = 0.20
 
 # Detection slider
 DETECTION_SLIDER_STEPS = int((SIM_DROP_THRESHOLD_MAX - SIM_DROP_THRESHOLD_MIN) / 0.01)
@@ -1122,17 +1122,35 @@ class ShotBoard(QMainWindow):
 
     @log_function_name()
     def update_status_bar(self):
+        info_text = ""
+
+        if not self.is_selection_empty():
+            shot_index_min, shot_index_max = self.get_selection_index_min_max()
+            shot_widget_min, shot_widget_max = self._shot_widget_mgr[shot_index_min], self._shot_widget_mgr[shot_index_max]
+            sel_start_frame_index, sel_end_frame_index = shot_widget_min.get_start_frame_index(), shot_widget_max.get_end_frame_index()
+
+            sel_shot_count = shot_index_max - shot_index_min + 1
+            sel_start_time_hms = str(datetime.timedelta(seconds=int(sel_start_frame_index / self._video_info.fps)))
+            sel_duration_hms = str(datetime.timedelta(seconds=int((sel_end_frame_index - sel_start_frame_index) /self._video_info.fps )))
+
+            info_text += (
+                f"𝗦𝗲𝗹. 𝗦𝗵𝗼𝘁𝘀 {sel_shot_count}   "
+                f"𝗦𝗲𝗹. 𝗦𝘁𝗮𝗿𝘁 {sel_start_time_hms}   "
+                f"𝗦𝗲𝗹. 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {sel_duration_hms}   "
+            )
+
         ratio = self._video_info.display_width / self._video_info.frame_height if self._video_info.frame_height > 0 else 0
         duration_hms = str(datetime.timedelta(seconds=int(self._video_info.duration)))
         duration_h = self._video_info.duration / 3600 if self._video_info.duration > 0 else 1  # Prevent division by zero
         shots_per_hour = round(len(self._db) / duration_h)
-
-        self._info_label.setText(
-            f"𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {duration_hms}   "
+        info_text += (
+            f"𝗧𝗼𝘁. 𝗦𝗵𝗼𝘁𝘀 {len(self._db)} ({shots_per_hour} shots/hour)   "
+            f"𝗧𝗼𝘁. 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻 {duration_hms}   "
             f"𝗙𝗣𝗦 {self._video_info.fps}   "
-            f"𝗥𝗲𝘀𝗼𝗹𝘂𝘁𝗶𝗼𝗻 {self._video_info.display_width}x{self._video_info.frame_height} ({ratio:.2f})   "
-            f"𝗦𝗵𝗼𝘁𝘀 {len(self._db)} (avg. {shots_per_hour} shots/hour)"
+            f"𝗥𝗲𝘀. {self._video_info.display_width}x{self._video_info.frame_height} ({ratio:.2f})   "
         )
+
+        self._info_label.setText(info_text)
 
 
     @log_function_name()
@@ -1968,6 +1986,7 @@ class ShotBoard(QMainWindow):
         for _, shot_widget in enumerate(self._shot_widget_mgr):
             shot_widget.set_selected(True)
         self.update_ui_state()
+        self.update_status_bar()
         return True
 
 
@@ -1982,6 +2001,7 @@ class ShotBoard(QMainWindow):
         self._selection_first_index = None
         self._selection_last_index = None
         self.update_ui_state()
+        self.update_status_bar()
         return True
 
 
@@ -2028,6 +2048,7 @@ class ShotBoard(QMainWindow):
         self._selection_first_index = first_index
         self._selection_last_index = last_index
         self.update_ui_state()
+        self.update_status_bar()
         return True
 
 
@@ -2044,6 +2065,7 @@ class ShotBoard(QMainWindow):
             self._selection_first_index = 0
             self._selection_last_index = shot_index
             self.update_ui_state()
+            self.update_status_bar()
             return
 
         # Else either extend or reduce the selection
@@ -2074,6 +2096,7 @@ class ShotBoard(QMainWindow):
 
         self._selection_last_index = shot_index
         self.update_ui_state()
+        self.update_status_bar()
         return True
 
 
